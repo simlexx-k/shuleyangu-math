@@ -6,8 +6,12 @@ type Mode = "grid" | "worksheet"
 
 const settings = reactive({
   mode: "grid" as Mode,
-  minFactor: 1,
-  maxFactor: 12,
+  gridRowStart: 1,
+  gridRowEnd: 12,
+  gridColStart: 1,
+  gridColEnd: 12,
+  worksheetFactorStart: 1,
+  worksheetFactorEnd: 12,
   baseStart: 2,
   baseEnd: 12,
   showAnswers: true,
@@ -17,8 +21,8 @@ const pdfLoading = ref(false)
 const pdfError = ref<string | null>(null)
 
 const factorRange = computed(() => {
-  const min = Math.max(1, Math.min(settings.minFactor, settings.maxFactor, 500))
-  const max = Math.max(1, Math.min(Math.max(settings.minFactor, settings.maxFactor), 500))
+  const min = Math.max(1, Math.min(settings.worksheetFactorStart, settings.worksheetFactorEnd, 500))
+  const max = Math.max(1, Math.min(Math.max(settings.worksheetFactorStart, settings.worksheetFactorEnd), 500))
   return Array.from({ length: max - min + 1 }, (_, idx) => min + idx)
 })
 
@@ -28,13 +32,26 @@ const baseRange = computed(() => {
   return Array.from({ length: max - min + 1 }, (_, idx) => min + idx)
 })
 
-const gridRows = computed(() => factorRange.value)
-const gridCols = computed(() => factorRange.value)
+const gridRows = computed(() => {
+  const min = Math.max(1, Math.min(settings.gridRowStart, settings.gridRowEnd, 500))
+  const max = Math.max(1, Math.min(Math.max(settings.gridRowStart, settings.gridRowEnd), 500))
+  return Array.from({ length: max - min + 1 }, (_, idx) => min + idx)
+})
+
+const gridCols = computed(() => {
+  const min = Math.max(1, Math.min(settings.gridColStart, settings.gridColEnd, 500))
+  const max = Math.max(1, Math.min(Math.max(settings.gridColStart, settings.gridColEnd), 500))
+  return Array.from({ length: max - min + 1 }, (_, idx) => min + idx)
+})
 
 function resetDefaults() {
   settings.mode = "grid"
-  settings.minFactor = 1
-  settings.maxFactor = 12
+  settings.gridRowStart = 1
+  settings.gridRowEnd = 12
+  settings.gridColStart = 1
+  settings.gridColEnd = 12
+  settings.worksheetFactorStart = 1
+  settings.worksheetFactorEnd = 12
   settings.baseStart = 2
   settings.baseEnd = 12
   settings.showAnswers = true
@@ -50,8 +67,12 @@ async function downloadPdf() {
   try {
     const payload = {
       mode: settings.mode,
-      min_factor: settings.minFactor,
-      max_factor: settings.maxFactor,
+      min_factor: settings.worksheetFactorStart,
+      max_factor: settings.worksheetFactorEnd,
+      row_start: settings.gridRowStart,
+      row_end: settings.gridRowEnd,
+      col_start: settings.gridColStart,
+      col_end: settings.gridColEnd,
       base_start: settings.baseStart,
       base_end: settings.baseEnd,
       show_answers: settings.showAnswers,
@@ -109,13 +130,35 @@ async function downloadPdf() {
                 <option value="worksheet">One table per page</option>
               </select>
             </label>
+          </div>
+
+          <div class="field-group" v-if="settings.mode === 'grid'">
+            <label>
+              <span>Row start</span>
+              <input v-model.number="settings.gridRowStart" type="number" min="1" max="500" />
+            </label>
+            <label>
+              <span>Row end</span>
+              <input v-model.number="settings.gridRowEnd" type="number" min="1" max="500" />
+            </label>
+            <label>
+              <span>Column start</span>
+              <input v-model.number="settings.gridColStart" type="number" min="1" max="500" />
+            </label>
+            <label>
+              <span>Column end</span>
+              <input v-model.number="settings.gridColEnd" type="number" min="1" max="500" />
+            </label>
+          </div>
+
+          <div class="field-group" v-if="settings.mode === 'worksheet'">
             <label>
               <span>Factor start</span>
-              <input v-model.number="settings.minFactor" type="number" min="1" max="500" />
+              <input v-model.number="settings.worksheetFactorStart" type="number" min="1" max="500" />
             </label>
             <label>
               <span>Factor end</span>
-              <input v-model.number="settings.maxFactor" type="number" min="1" max="500" />
+              <input v-model.number="settings.worksheetFactorEnd" type="number" min="1" max="500" />
             </label>
           </div>
 
@@ -142,7 +185,10 @@ async function downloadPdf() {
         <div v-if="settings.mode === 'grid'" class="sheet">
           <header class="sheet-header">
             <h2>Multiplication Grid</h2>
-            <p>Factors {{ gridRows[0] }} to {{ gridRows[gridRows.length - 1] }}</p>
+            <p>
+              Rows {{ gridRows[0] }} to {{ gridRows[gridRows.length - 1] }},
+              Columns {{ gridCols[0] }} to {{ gridCols[gridCols.length - 1] }}
+            </p>
           </header>
           <div class="grid-scroll">
             <table class="grid-table">
