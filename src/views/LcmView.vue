@@ -182,17 +182,15 @@ const multiplesInfo = computed(() => {
 })
 
 const formulaSteps = computed(() => {
-  const values = calculator.numbersCount === 3
-    ? [calculator.a, calculator.b, calculator.c]
-    : [calculator.a, calculator.b]
-  const [a, b] = values
+  const a = calculator.a
+  const b = calculator.b
   const gcdAB = gcd(a, b)
   const lcmAB = lcm(a, b)
   const steps = [
     `LCM(${a}, ${b}) = |${a} × ${b}| / gcd(${a}, ${b}) = ${a * b} / ${gcdAB} = ${lcmAB}`,
   ]
-  if (values.length === 3) {
-    const c = values[2]
+  if (calculator.numbersCount === 3) {
+    const c = calculator.c
     const gcdBC = gcd(lcmAB, c)
     const lcmABC = lcm(lcmAB, c)
     steps.push(
@@ -608,7 +606,7 @@ async function pushClassToQuiz() {
           <h3>Listing multiples</h3>
           <p v-for="(value, idx) in multiplesInfo.values" :key="`multi-${idx}`">
             Multiples of {{ value }}:
-            <span>{{ multiplesInfo.lists[idx].join(", ") }}</span>
+            <span>{{ multiplesInfo.lists[idx]?.join(", ") || "" }}</span>
           </p>
           <p>Common multiples (first {{ multiplesInfo.limit }}): {{ multiplesInfo.common.join(", ") || "None" }}</p>
           <p v-if="!multiplesInfo.lcmInList" class="subtle">LCM is beyond the listed multiples.</p>

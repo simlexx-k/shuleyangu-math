@@ -173,11 +173,12 @@ const primeInfo = computed(() => {
     : [calculator.a, calculator.b]
   const factors = values.map((value) => primeFactors(value))
   const common: number[] = []
-  if (factors.length) {
-    let copy = [...factors[0]]
-    for (let i = 1; i < factors.length; i += 1) {
+  const [firstFactors = [], ...remainingFactors] = factors
+  if (firstFactors.length) {
+    let copy = [...firstFactors]
+    for (const factorList of remainingFactors) {
       const next: number[] = []
-      const temp = [...factors[i]]
+      const temp = [...factorList]
       for (const f of copy) {
         const idx = temp.indexOf(f)
         if (idx >= 0) {
@@ -620,7 +621,7 @@ async function pushClassToQuiz() {
           <h3>Common divisors method</h3>
           <p v-for="(value, idx) in divisorInfo.values" :key="`divs-${idx}`">
             Divisors of {{ value }}:
-            <span>{{ divisorInfo.divisorLists[idx].join(", ") }}</span>
+            <span>{{ divisorInfo.divisorLists[idx]?.join(", ") || "" }}</span>
           </p>
           <p>Common divisors: {{ divisorInfo.common.join(", ") || "None" }}</p>
           <p><strong>GCD = {{ divisorInfo.gcd }}</strong></p>

@@ -19,7 +19,9 @@ const userInitials = computed(() => {
   const label = userLabel.value.trim()
   if (!label) return "U"
   const parts = label.split(/\s+/).filter(Boolean)
-  const initials = parts.length === 1 ? parts[0][0] : `${parts[0][0]}${parts[parts.length - 1][0]}`
+  const first = parts[0] ?? "U"
+  const last = parts[parts.length - 1] ?? first
+  const initials = parts.length === 1 ? first.charAt(0) : `${first.charAt(0)}${last.charAt(0)}`
   return initials.toUpperCase()
 })
 

@@ -18,7 +18,7 @@ function smallestFactor(n: number) {
   return n
 }
 
-function buildTree(n: number, isRoot = false): TreeNode {
+function buildTree(n: number): TreeNode {
   const num = Math.abs(n)
   if (num <= 1) return { name: String(n) }
   const factor = smallestFactor(num)
@@ -36,7 +36,7 @@ function buildTree(n: number, isRoot = false): TreeNode {
 }
 
 const layout = computed(() => {
-  const root = hierarchy<TreeNode>(buildTree(props.value, true))
+  const root = hierarchy<TreeNode>(buildTree(props.value))
   const treeLayout = tree<TreeNode>().nodeSize([50, 70])
   treeLayout(root)
   const nodes = root.descendants()
