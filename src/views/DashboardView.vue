@@ -30,12 +30,16 @@ const tools = computed(() => [
   {
     name: "Number Sense Lab",
     description: "Place value, rounding, and number patterns for primary and junior levels.",
-    status: "Coming soon",
+    status: "Ready",
+    route: "/tools/number-sense",
+    cta: "Open",
   },
   {
     name: "Fractions Studio",
     description: "Visual fraction models, equivalence checks, and practice sets.",
-    status: "Coming soon",
+    status: "Ready",
+    route: "/tools/fractions",
+    cta: "Open",
   },
   {
     name: "Geometry Board",
@@ -75,13 +79,13 @@ function statusClass(status: string) {
     <div class="stat-grid fade-in">
       <div class="stat-card">
         <span class="stat-label">Active tools</span>
-        <span class="stat-value">3</span>
-        <span class="subtle">Multiplication + GCD/HCF + LCM available</span>
+        <span class="stat-value">5</span>
+        <span class="subtle">Multiplication, HCF, LCM, Number Sense, Fractions</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Upcoming</span>
-        <span class="stat-value">3</span>
-        <span class="subtle">Number sense, fractions, geometry</span>
+        <span class="stat-value">2</span>
+        <span class="subtle">Geometry, Algebra</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Format</span>
