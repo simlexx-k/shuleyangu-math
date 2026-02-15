@@ -76,6 +76,26 @@ const router = createRouter({
         description: 'Visual fraction models and equivalence checks.',
       },
     },
+    {
+      path: '/science',
+      name: 'science',
+      component: () => import('../views/ScienceDashboardView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Science Labs',
+        description: 'Interactive virtual labs for physics and science.',
+      },
+    },
+    {
+      path: '/science/pendulum',
+      name: 'pendulum',
+      component: () => import('../views/PendulumLabView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Pendulum Lab',
+        description: 'Interactive pendulum simulation for physics learning.',
+      },
+    },
   ],
 })
 
