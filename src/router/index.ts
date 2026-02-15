@@ -56,6 +56,26 @@ const router = createRouter({
         description: 'Compute least common multiples and generate LCM practice worksheets.',
       },
     },
+    {
+      path: '/tools/number-sense',
+      name: 'number-sense',
+      component: () => import('../views/NumberSenseView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Number Sense Lab',
+        description: 'Explore place value, rounding, and number patterns.',
+      },
+    },
+    {
+      path: '/tools/fractions',
+      name: 'fractions',
+      component: () => import('../views/FractionsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Fractions Studio',
+        description: 'Visual fraction models and equivalence checks.',
+      },
+    },
   ],
 })
 
