@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue"
+import { Disclosure, DisclosureButton, DisclosurePanel, Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/vue"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/stores/auth"
 import FactorTree from "@/components/FactorTree.vue"
@@ -8,6 +9,13 @@ type Method = "prime" | "multiples" | "formula"
 type OutputType = "student" | "teacher"
 type Student = { id: number; name: string; class_level?: string }
 type Course = { id: number; title: string }
+type LcmSolutionResult = {
+  question: string
+  numbers: number[]
+  method: Method
+  lcm: number
+  explanation: string[]
+}
 
 const auth = useAuthStore()
 
@@ -55,6 +63,15 @@ const classSeed = ref<number | null>(null)
 const classQuizSuccess = ref<string | null>(null)
 const classQuizLoading = ref(false)
 const studentQuery = ref("")
+const solution = reactive({
+  question: "LCM(12, 18)",
+  method: "prime" as Method,
+  showSteps: true,
+})
+const solutionLoading = ref(false)
+const solutionPdfLoading = ref(false)
+const solutionError = ref<string | null>(null)
+const solutionResult = ref<LcmSolutionResult | null>(null)
 
 function normalizeBounds(a: number, b: number) {
   const min = Math.max(1, Math.min(a, b))
@@ -489,6 +506,59 @@ async function pushClassToQuiz() {
     classQuizLoading.value = false
   }
 }
+
+async function solveQuestion() {
+  solutionError.value = null
+  solutionLoading.value = true
+  try {
+    const payload = {
+      question: solution.question.trim(),
+      method: solution.method,
+      show_steps: solution.showSteps,
+      title: "LCM Solution",
+    }
+    solutionResult.value = await api<LcmSolutionResult>("math/lcm/solve", "POST", {
+      auth: true,
+      body: payload,
+    })
+  } catch (err: any) {
+    solutionError.value = err?.message || "Failed to solve question"
+    solutionResult.value = null
+  } finally {
+    solutionLoading.value = false
+  }
+}
+
+async function downloadSolutionPdf() {
+  solutionError.value = null
+  solutionPdfLoading.value = true
+  try {
+    const payload = {
+      question: solution.question.trim(),
+      method: solution.method,
+      show_steps: solution.showSteps,
+      title: "LCM Solution",
+    }
+    const blob = await api<Blob>("math/lcm/solve/pdf", "POST", {
+      auth: true,
+      body: payload,
+      responseType: "blob",
+    })
+    const url = URL.createObjectURL(blob)
+    const stamp = new Date().toISOString().slice(0, 10)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `lcm_solution_${stamp}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (err: any) {
+    solutionError.value = err?.message || "Failed to generate solution PDF"
+  } finally {
+    solutionPdfLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -499,255 +569,322 @@ async function pushClassToQuiz() {
         <h1>LCM Explorer</h1>
         <p class="subtle">Compute least common multiples and generate practice worksheets.</p>
       </div>
-      <div class="header-actions no-print">
-        <button class="secondary" type="button" @click="generateProblems">New practice set</button>
-        <button class="primary" type="button" :disabled="pdfLoading" @click="downloadPdf">
-          {{ pdfLoading ? "Preparing PDF..." : "Download PDF" }}
-        </button>
-      </div>
     </div>
 
     <p v-if="pdfError" class="error no-print">{{ pdfError }}</p>
     <p v-if="calcPdfError" class="error no-print">{{ calcPdfError }}</p>
     <p v-if="classPdfError" class="error no-print">{{ classPdfError }}</p>
+    <p v-if="solutionError" class="error no-print">{{ solutionError }}</p>
     <p v-if="classQuizSuccess" class="success no-print">{{ classQuizSuccess }}</p>
 
-    <div class="lcm-grid">
-      <section class="card">
-        <h2>Calculator</h2>
-        <div class="field-row">
-          <label>
-            <span>Number A</span>
-            <input v-model.number="calculator.a" type="number" min="1" />
-          </label>
-          <label>
-            <span>Number B</span>
-            <input v-model.number="calculator.b" type="number" min="1" />
-          </label>
-          <label v-if="calculator.numbersCount === 3">
-            <span>Number C</span>
-            <input v-model.number="calculator.c" type="number" min="1" />
-          </label>
-        </div>
-        <label>
-          <span>Numbers</span>
-          <select v-model.number="calculator.numbersCount">
-            <option :value="2">2 numbers</option>
-            <option :value="3">3 numbers</option>
-          </select>
-        </label>
-        <label>
-          <span>Method</span>
-          <select v-model="calculator.method">
-            <option value="prime">Prime factorization</option>
-            <option value="multiples">List multiples</option>
-            <option value="formula">GCD formula</option>
-          </select>
-        </label>
-        <label class="toggle">
-          <input v-model="calculator.showSteps" type="checkbox" />
-          <span>Show steps</span>
-        </label>
+    <TabGroup>
+      <TabList class="tool-tabs no-print">
+        <Tab v-slot="{ selected }" as="template">
+          <button type="button" :class="selected ? 'tool-tab active' : 'tool-tab'">Calculator</button>
+        </Tab>
+        <Tab v-slot="{ selected }" as="template">
+          <button type="button" :class="selected ? 'tool-tab active' : 'tool-tab'">Question Solver</button>
+        </Tab>
+        <Tab v-slot="{ selected }" as="template">
+          <button type="button" :class="selected ? 'tool-tab active' : 'tool-tab'">Practice</button>
+        </Tab>
+      </TabList>
 
-        <div class="result">
-          <span class="stat-label">LCM</span>
-          <span class="stat-value">{{ lcmResult }}</span>
-        </div>
-
-        <button class="secondary no-print" type="button" :disabled="calcPdfLoading" @click="downloadCalculatorPdf">
-          {{ calcPdfLoading ? "Preparing PDF..." : "Download calculation PDF" }}
-        </button>
-
-        <div v-if="calculator.showSteps && calculator.method === 'prime'" class="steps">
-          <h3>Prime factor steps</h3>
-          <p v-for="(value, idx) in primeInfo.values" :key="`prime-${idx}`">
-            {{ value }} =
-            <span v-if="primeInfo.factorsHtml[idx]" v-html="primeInfo.factorsHtml[idx]"></span>
-            <span v-else>{{ value }}</span>
-          </p>
-          <p>
-            <strong>
-              LCM =
-              <span v-if="primeInfo.lcmHtml" v-html="primeInfo.lcmHtml"></span>
-              <span v-else>{{ primeInfo.lcm }}</span>
-              = {{ primeInfo.lcm }}
-            </strong>
-          </p>
-
-          <div class="tree-grid">
-            <div>
-              <h4>Factor tree (A)</h4>
-              <FactorTree :value="calculator.a" />
-            </div>
-            <div>
-              <h4>Factor tree (B)</h4>
-              <FactorTree :value="calculator.b" />
-            </div>
-            <div v-if="calculator.numbersCount === 3">
-              <h4>Factor tree (C)</h4>
-              <FactorTree :value="calculator.c" />
-            </div>
-            <div>
-              <h4>Factor ladder (A)</h4>
-              <pre class="mono-block">{{ ladderA.join("\n") }}</pre>
-            </div>
-            <div>
-              <h4>Factor ladder (B)</h4>
-              <pre class="mono-block">{{ ladderB.join("\n") }}</pre>
-            </div>
-            <div v-if="calculator.numbersCount === 3">
-              <h4>Factor ladder (C)</h4>
-              <pre class="mono-block">{{ ladderC.join("\n") }}</pre>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="calculator.showSteps && calculator.method === 'multiples'" class="steps">
-          <h3>Listing multiples</h3>
-          <p v-for="(value, idx) in multiplesInfo.values" :key="`multi-${idx}`">
-            Multiples of {{ value }}:
-            <span>{{ multiplesInfo.lists[idx]?.join(", ") || "" }}</span>
-          </p>
-          <p>Common multiples (first {{ multiplesInfo.limit }}): {{ multiplesInfo.common.join(", ") || "None" }}</p>
-          <p v-if="!multiplesInfo.lcmInList" class="subtle">LCM is beyond the listed multiples.</p>
-          <p><strong>LCM = {{ multiplesInfo.lcm }}</strong></p>
-        </div>
-
-        <div v-if="calculator.showSteps && calculator.method === 'formula'" class="steps">
-          <h3>GCD formula steps</h3>
-          <ol>
-            <li v-for="(step, idx) in formulaSteps" :key="`formula-${idx}`">{{ step }}</li>
-          </ol>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Practice generator</h2>
-        <div class="field-row">
-          <label>
-            <span>Questions</span>
-            <input v-model.number="practice.count" type="number" min="1" max="200" />
-          </label>
-          <label>
-            <span>Min value</span>
-            <input v-model.number="practice.minValue" type="number" min="1" max="5000" />
-          </label>
-          <label>
-            <span>Max value</span>
-            <input v-model.number="practice.maxValue" type="number" min="1" max="5000" />
-          </label>
-          <label>
-            <span>Numbers per task</span>
-            <select v-model.number="practice.numbersCount">
-              <option :value="2">2 numbers</option>
-              <option :value="3">3 numbers</option>
-            </select>
-          </label>
-        </div>
-        <label class="toggle">
-          <input v-model="practice.showAnswers" type="checkbox" />
-          <span>Show answers in preview</span>
-        </label>
-        <label>
-          <span>Worksheet method</span>
-          <select v-model="practice.method">
-            <option value="prime">Prime factorization</option>
-            <option value="multiples">List multiples</option>
-            <option value="formula">GCD formula</option>
-          </select>
-        </label>
-        <label>
-          <span>PDF version</span>
-          <select v-model="practice.outputType">
-            <option value="student">Student worksheet</option>
-            <option value="teacher">Teacher copy (solved)</option>
-          </select>
-        </label>
-
-        <div class="class-panel">
-          <div class="class-header">
-            <h3>Class printouts</h3>
-            <button class="ghost" type="button" @click="loadClassLevels">Refresh</button>
-          </div>
-          <label>
-            <span>Class level</span>
-            <select v-model="selectedClassLevel" :disabled="classLevelLoading">
-              <option value="">Select class level</option>
-              <option v-for="level in classLevels" :key="level" :value="level">{{ level }}</option>
-            </select>
-          </label>
-          <p v-if="classLevelError" class="error">{{ classLevelError }}</p>
-          <label>
-            <span>Course</span>
-            <select v-model.number="selectedCourseId" :disabled="coursesLoading || !selectedClassLevel">
-              <option value="">Select course</option>
-              <option v-for="course in courses" :key="course.id" :value="course.id">
-                {{ course.title }}
-              </option>
-            </select>
-          </label>
-          <p v-if="coursesError" class="error">{{ coursesError }}</p>
-
-          <div class="student-list">
-            <div class="student-list-header">
-              <span>Students</span>
-              <span v-if="students.length">{{ selectedStudentIds.length }}/{{ students.length }} selected</span>
-            </div>
-            <label class="student-search">
-              <span>Search</span>
-              <input v-model="studentQuery" type="search" placeholder="Search student name" />
-            </label>
-            <div v-if="studentsLoading" class="subtle">Loading students...</div>
-            <div v-else-if="studentsError" class="error">{{ studentsError }}</div>
-            <div v-else-if="!selectedClassLevel" class="subtle">Select a class level to load students.</div>
-            <div v-else-if="students.length === 0" class="subtle">No students found for this class.</div>
-            <div v-else-if="filteredStudents.length === 0" class="subtle">No matches for this search.</div>
-            <div v-else class="student-scroll">
-              <div class="student-row header">
-                <label>
-                  <input type="checkbox" :checked="allStudentsSelected" @change="toggleAllStudents" />
-                </label>
-                <span>Name</span>
-              </div>
-              <label v-for="student in filteredStudents" :key="student.id" class="student-row">
-                <input v-model="selectedStudentIds" type="checkbox" :value="student.id" />
-                <span class="student-name">{{ student.name }}</span>
+      <TabPanels class="panel-stack">
+        <TabPanel>
+          <section class="card panel-card">
+            <h2>Calculator</h2>
+            <div class="field-row">
+              <label>
+                <span>Number A</span>
+                <input v-model.number="calculator.a" type="number" min="1" />
+              </label>
+              <label>
+                <span>Number B</span>
+                <input v-model.number="calculator.b" type="number" min="1" />
+              </label>
+              <label v-if="calculator.numbersCount === 3">
+                <span>Number C</span>
+                <input v-model.number="calculator.c" type="number" min="1" />
               </label>
             </div>
-          </div>
+            <label>
+              <span>Numbers</span>
+              <select v-model.number="calculator.numbersCount">
+                <option :value="2">2 numbers</option>
+                <option :value="3">3 numbers</option>
+              </select>
+            </label>
+            <label>
+              <span>Method</span>
+              <select v-model="calculator.method">
+                <option value="prime">Prime factorization</option>
+                <option value="multiples">List multiples</option>
+                <option value="formula">GCD formula</option>
+              </select>
+            </label>
+            <label class="toggle">
+              <input v-model="calculator.showSteps" type="checkbox" />
+              <span>Show steps</span>
+            </label>
 
-          <button
-            class="primary"
-            type="button"
-            :disabled="classPdfLoading || selectedStudentIds.length === 0 || !selectedClassLevel"
-            @click="downloadClassPdf"
-          >
-            {{ classPdfLoading ? "Preparing class PDF..." : "Download combined PDF" }}
-          </button>
-          <button
-            class="secondary"
-            type="button"
-            :disabled="
-              classQuizLoading ||
-              selectedStudentIds.length === 0 ||
-              !selectedClassLevel ||
-              !selectedCourseId
-            "
-            @click="pushClassToQuiz"
-          >
-            {{ classQuizLoading ? "Pushing to quiz..." : "Push to quiz" }}
-          </button>
-        </div>
+            <div class="result">
+              <span class="stat-label">LCM</span>
+              <span class="stat-value">{{ lcmResult }}</span>
+            </div>
 
-        <div class="practice-list">
-          <div v-for="(item, idx) in problems" :key="`${item.nums.join('-')}-${idx}`" class="practice-row">
-            <span>{{ idx + 1 }}. LCM({{ item.nums.join(", ") }})</span>
-            <span v-if="practice.showAnswers" class="answer">{{ item.lcm }}</span>
-            <span v-else class="line"></span>
-          </div>
-        </div>
-      </section>
-    </div>
+            <button class="secondary no-print" type="button" :disabled="calcPdfLoading" @click="downloadCalculatorPdf">
+              {{ calcPdfLoading ? "Preparing PDF..." : "Download calculation PDF" }}
+            </button>
+
+            <div v-if="calculator.showSteps && calculator.method === 'prime'" class="steps">
+              <h3>Prime factor steps</h3>
+              <p v-for="(value, idx) in primeInfo.values" :key="`prime-${idx}`">
+                {{ value }} =
+                <span v-if="primeInfo.factorsHtml[idx]" v-html="primeInfo.factorsHtml[idx]"></span>
+                <span v-else>{{ value }}</span>
+              </p>
+              <p>
+                <strong>
+                  LCM =
+                  <span v-if="primeInfo.lcmHtml" v-html="primeInfo.lcmHtml"></span>
+                  <span v-else>{{ primeInfo.lcm }}</span>
+                  = {{ primeInfo.lcm }}
+                </strong>
+              </p>
+
+              <div class="tree-grid">
+                <div>
+                  <h4>Factor tree (A)</h4>
+                  <FactorTree :value="calculator.a" />
+                </div>
+                <div>
+                  <h4>Factor tree (B)</h4>
+                  <FactorTree :value="calculator.b" />
+                </div>
+                <div v-if="calculator.numbersCount === 3">
+                  <h4>Factor tree (C)</h4>
+                  <FactorTree :value="calculator.c" />
+                </div>
+                <div>
+                  <h4>Factor ladder (A)</h4>
+                  <pre class="mono-block">{{ ladderA.join("\n") }}</pre>
+                </div>
+                <div>
+                  <h4>Factor ladder (B)</h4>
+                  <pre class="mono-block">{{ ladderB.join("\n") }}</pre>
+                </div>
+                <div v-if="calculator.numbersCount === 3">
+                  <h4>Factor ladder (C)</h4>
+                  <pre class="mono-block">{{ ladderC.join("\n") }}</pre>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="calculator.showSteps && calculator.method === 'multiples'" class="steps">
+              <h3>Listing multiples</h3>
+              <p v-for="(value, idx) in multiplesInfo.values" :key="`multi-${idx}`">
+                Multiples of {{ value }}:
+                <span>{{ multiplesInfo.lists[idx]?.join(", ") || "" }}</span>
+              </p>
+              <p>Common multiples (first {{ multiplesInfo.limit }}): {{ multiplesInfo.common.join(", ") || "None" }}</p>
+              <p v-if="!multiplesInfo.lcmInList" class="subtle">LCM is beyond the listed multiples.</p>
+              <p><strong>LCM = {{ multiplesInfo.lcm }}</strong></p>
+            </div>
+
+            <div v-if="calculator.showSteps && calculator.method === 'formula'" class="steps">
+              <h3>GCD formula steps</h3>
+              <ol>
+                <li v-for="(step, idx) in formulaSteps" :key="`formula-${idx}`">{{ step }}</li>
+              </ol>
+            </div>
+          </section>
+        </TabPanel>
+
+        <TabPanel>
+          <section class="card panel-card">
+            <h2>Question solver</h2>
+            <label>
+              <span>LCM question</span>
+              <textarea
+                v-model="solution.question"
+                rows="3"
+                placeholder="e.g. LCM(12, 18) or LCM(12, 18, 24)"
+              ></textarea>
+            </label>
+            <label>
+              <span>Method</span>
+              <select v-model="solution.method">
+                <option value="prime">Prime factorization</option>
+                <option value="multiples">List multiples</option>
+                <option value="formula">GCD formula</option>
+              </select>
+            </label>
+            <label class="toggle">
+              <input v-model="solution.showSteps" type="checkbox" />
+              <span>Show steps</span>
+            </label>
+            <div class="header-actions no-print">
+              <button class="primary" type="button" :disabled="solutionLoading" @click="solveQuestion">
+                {{ solutionLoading ? "Solving..." : "Generate answer + explanation" }}
+              </button>
+              <button class="secondary" type="button" :disabled="solutionPdfLoading" @click="downloadSolutionPdf">
+                {{ solutionPdfLoading ? "Preparing PDF..." : "Download solution PDF" }}
+              </button>
+            </div>
+
+            <div v-if="solutionResult" class="steps">
+              <p><strong>Answer: LCM({{ solutionResult.numbers.join(", ") }}) = {{ solutionResult.lcm }}</strong></p>
+              <ol>
+                <li v-for="(line, idx) in solutionResult.explanation" :key="`solution-${idx}`">{{ line }}</li>
+              </ol>
+            </div>
+          </section>
+        </TabPanel>
+
+        <TabPanel>
+          <section class="card panel-card">
+            <h2>Practice generator</h2>
+            <div class="header-actions no-print">
+              <button class="secondary" type="button" @click="generateProblems">New practice set</button>
+              <button class="primary" type="button" :disabled="pdfLoading" @click="downloadPdf">
+                {{ pdfLoading ? "Preparing PDF..." : "Download PDF" }}
+              </button>
+            </div>
+
+            <div class="field-row">
+              <label>
+                <span>Questions</span>
+                <input v-model.number="practice.count" type="number" min="1" max="200" />
+              </label>
+              <label>
+                <span>Min value</span>
+                <input v-model.number="practice.minValue" type="number" min="1" max="5000" />
+              </label>
+              <label>
+                <span>Max value</span>
+                <input v-model.number="practice.maxValue" type="number" min="1" max="5000" />
+              </label>
+              <label>
+                <span>Numbers per task</span>
+                <select v-model.number="practice.numbersCount">
+                  <option :value="2">2 numbers</option>
+                  <option :value="3">3 numbers</option>
+                </select>
+              </label>
+            </div>
+            <label class="toggle">
+              <input v-model="practice.showAnswers" type="checkbox" />
+              <span>Show answers in preview</span>
+            </label>
+            <label>
+              <span>Worksheet method</span>
+              <select v-model="practice.method">
+                <option value="prime">Prime factorization</option>
+                <option value="multiples">List multiples</option>
+                <option value="formula">GCD formula</option>
+              </select>
+            </label>
+            <label>
+              <span>PDF version</span>
+              <select v-model="practice.outputType">
+                <option value="student">Student worksheet</option>
+                <option value="teacher">Teacher copy (solved)</option>
+              </select>
+            </label>
+
+            <Disclosure as="section" class="class-panel" v-slot="{ open }">
+              <DisclosureButton class="class-disclosure">
+                <span class="class-disclosure-title">Class printouts</span>
+                <span :class="open ? 'class-disclosure-icon open' : 'class-disclosure-icon'">+</span>
+              </DisclosureButton>
+              <DisclosurePanel class="class-disclosure-body">
+                <div class="class-header">
+                  <h3>Class printouts</h3>
+                  <button class="ghost" type="button" @click="loadClassLevels">Refresh</button>
+                </div>
+                <label>
+                  <span>Class level</span>
+                  <select v-model="selectedClassLevel" :disabled="classLevelLoading">
+                    <option value="">Select class level</option>
+                    <option v-for="level in classLevels" :key="level" :value="level">{{ level }}</option>
+                  </select>
+                </label>
+                <p v-if="classLevelError" class="error">{{ classLevelError }}</p>
+                <label>
+                  <span>Course</span>
+                  <select v-model.number="selectedCourseId" :disabled="coursesLoading || !selectedClassLevel">
+                    <option value="">Select course</option>
+                    <option v-for="course in courses" :key="course.id" :value="course.id">
+                      {{ course.title }}
+                    </option>
+                  </select>
+                </label>
+                <p v-if="coursesError" class="error">{{ coursesError }}</p>
+
+                <div class="student-list">
+                  <div class="student-list-header">
+                    <span>Students</span>
+                    <span v-if="students.length">{{ selectedStudentIds.length }}/{{ students.length }} selected</span>
+                  </div>
+                  <label class="student-search">
+                    <span>Search</span>
+                    <input v-model="studentQuery" type="search" placeholder="Search student name" />
+                  </label>
+                  <div v-if="studentsLoading" class="subtle">Loading students...</div>
+                  <div v-else-if="studentsError" class="error">{{ studentsError }}</div>
+                  <div v-else-if="!selectedClassLevel" class="subtle">Select a class level to load students.</div>
+                  <div v-else-if="students.length === 0" class="subtle">No students found for this class.</div>
+                  <div v-else-if="filteredStudents.length === 0" class="subtle">No matches for this search.</div>
+                  <div v-else class="student-scroll">
+                    <div class="student-row header">
+                      <label>
+                        <input type="checkbox" :checked="allStudentsSelected" @change="toggleAllStudents" />
+                      </label>
+                      <span>Name</span>
+                    </div>
+                    <label v-for="student in filteredStudents" :key="student.id" class="student-row">
+                      <input v-model="selectedStudentIds" type="checkbox" :value="student.id" />
+                      <span class="student-name">{{ student.name }}</span>
+                    </label>
+                  </div>
+                </div>
+
+                <button
+                  class="primary"
+                  type="button"
+                  :disabled="classPdfLoading || selectedStudentIds.length === 0 || !selectedClassLevel"
+                  @click="downloadClassPdf"
+                >
+                  {{ classPdfLoading ? "Preparing class PDF..." : "Download combined PDF" }}
+                </button>
+                <button
+                  class="secondary"
+                  type="button"
+                  :disabled="
+                    classQuizLoading ||
+                    selectedStudentIds.length === 0 ||
+                    !selectedClassLevel ||
+                    !selectedCourseId
+                  "
+                  @click="pushClassToQuiz"
+                >
+                  {{ classQuizLoading ? "Pushing to quiz..." : "Push to quiz" }}
+                </button>
+              </DisclosurePanel>
+            </Disclosure>
+
+            <div class="practice-list">
+              <div v-for="(item, idx) in problems" :key="`${item.nums.join('-')}-${idx}`" class="practice-row">
+                <span>{{ idx + 1 }}. LCM({{ item.nums.join(", ") }})</span>
+                <span v-if="practice.showAnswers" class="answer">{{ item.lcm }}</span>
+                <span v-else class="line"></span>
+              </div>
+            </div>
+          </section>
+        </TabPanel>
+      </TabPanels>
+    </TabGroup>
   </section>
 </template>
 
@@ -772,10 +909,41 @@ async function pushClassToQuiz() {
   flex-wrap: wrap;
 }
 
-.lcm-grid {
+.tool-tabs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.35rem;
+  background: #edf2ea;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+}
+
+.tool-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 0.65rem 0.8rem;
+  transition: all 0.2s ease;
+}
+
+.tool-tab.active {
+  background: #fff;
+  border-color: var(--border-soft);
+  color: var(--ink-strong);
+  box-shadow: 0 6px 16px rgba(30, 31, 26, 0.08);
+}
+
+.panel-stack {
+  margin-top: 1rem;
+}
+
+.panel-card {
+  max-width: 1100px;
+  margin: 0 auto;
 }
 
 .card {
@@ -807,13 +975,19 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   background: #fafbfa;
   font-size: 0.95rem;
   width: 100%;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 72px;
 }
 
 .result {
@@ -897,6 +1071,45 @@ select {
   border-radius: 14px;
   border: 1px dashed var(--border-soft);
   background: #ffffff;
+}
+
+.class-disclosure {
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink-strong);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.class-disclosure-title {
+  text-align: left;
+}
+
+.class-disclosure-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef2ea;
+  color: var(--ink-muted);
+  transition: transform 0.2s ease;
+}
+
+.class-disclosure-icon.open {
+  transform: rotate(45deg);
+}
+
+.class-disclosure-body {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.75rem;
 }
 
 .class-header {
@@ -987,6 +1200,10 @@ select {
 }
 
 @media (max-width: 720px) {
+  .tool-tabs {
+    grid-template-columns: 1fr;
+  }
+
   .header-actions {
     flex-direction: column;
     width: 100%;

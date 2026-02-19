@@ -28,6 +28,13 @@ const tools = computed(() => [
     cta: "Open",
   },
   {
+    name: "Science Hub",
+    description: "Scaffolded science section with physics, chemistry, and biology worksheet starters.",
+    status: "Ready",
+    route: "/tools/science",
+    cta: "Open",
+  },
+  {
     name: "Number Sense Lab",
     description: "Place value, rounding, and number patterns for primary and junior levels.",
     status: "Ready",
@@ -79,8 +86,8 @@ function statusClass(status: string) {
     <div class="stat-grid fade-in">
       <div class="stat-card">
         <span class="stat-label">Active tools</span>
-        <span class="stat-value">5</span>
-        <span class="subtle">Multiplication, HCF, LCM, Number Sense, Fractions</span>
+        <span class="stat-value">6</span>
+        <span class="subtle">Multiplication, HCF, LCM, Science, Number Sense, Fractions</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Upcoming</span>

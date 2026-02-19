@@ -77,6 +77,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/tools/science',
+      name: 'science-hub',
+      component: () => import('../views/ScienceView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Science Hub',
+        description: 'Scaffolded science tools for physics, chemistry, and biology worksheets.',
+      },
+    },
+    {
       path: '/science',
       name: 'science',
       component: () => import('../views/ScienceDashboardView.vue'),

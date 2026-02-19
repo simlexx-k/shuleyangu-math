@@ -13,6 +13,7 @@ const navItems = computed(() => [
   { name: "Multiplication Printouts", to: "/tools/multiplication-printouts" },
   { name: "GCD / HCF Explorer", to: "/tools/gcd-hcf" },
   { name: "LCM Explorer", to: "/tools/lcm" },
+  { name: "Science Hub", to: "/tools/science" },
 ])
 
 const userLabel = computed(() => auth.user?.full_name || auth.user?.username || "User")
