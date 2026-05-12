@@ -71,12 +71,38 @@ const learner = reactive({
 })
 
 const answers = reactive<Record<number, string>>({})
+const checkedAnswers = reactive<Record<number, boolean | undefined>>({})
+const activeIndex = ref(0)
+const coins = ref(0)
+const streak = ref(0)
+const bestStreak = ref(0)
+const lives = ref(3)
+const message = ref("Solve the first challenge to start your streak.")
 
 const normalizedCode = computed(() => codeInput.value.trim().toUpperCase())
 const progress = computed(() => {
   if (!started.value?.questions.length) return 0
-  const answered = started.value.questions.filter((question) => (answers[question.number] || "").trim()).length
+  const answered = started.value.questions.filter((question) => checkedAnswers[question.number] !== undefined).length
   return Math.round((answered / started.value.questions.length) * 100)
+})
+const activeQuestion = computed(() => started.value?.questions[activeIndex.value] ?? null)
+const answeredCount = computed(() => {
+  return started.value?.questions.filter((question) => checkedAnswers[question.number] !== undefined).length ?? 0
+})
+const correctCount = computed(() => {
+  return started.value?.questions.filter((question) => checkedAnswers[question.number] === true).length ?? 0
+})
+const questionStatus = computed(() => {
+  if (!activeQuestion.value) return null
+  return checkedAnswers[activeQuestion.value.number]
+})
+const gameComplete = computed(() => Boolean(started.value?.questions.length && answeredCount.value === started.value.questions.length))
+const rankLabel = computed(() => {
+  const score = result.value?.percentage_score ?? Math.round((correctCount.value / Math.max(1, started.value?.questions.length ?? 1)) * 100)
+  if (score >= 90) return "Math Champion"
+  if (score >= 75) return "Fact Master"
+  if (score >= 50) return "Strategy Builder"
+  return "Keep Practicing"
 })
 
 async function findCode(code = normalizedCode.value) {
@@ -110,12 +136,77 @@ async function startActivity() {
     })
     for (const question of started.value.questions) {
       answers[question.number] = ""
+      checkedAnswers[question.number] = undefined
     }
+    activeIndex.value = 0
+    coins.value = 0
+    streak.value = 0
+    bestStreak.value = 0
+    lives.value = 3
+    message.value = "Solve the first challenge to start your streak."
   } catch (err: any) {
     error.value = err?.message || "Could not start activity"
   } finally {
     loading.value = false
   }
+}
+
+function normalizeAnswer(value: string) {
+  return value.trim().toLowerCase().replace("×", "x")
+}
+
+function locallyExpectedAnswer(question: PlayQuestion) {
+  const arithmetic = question.prompt.match(/(-?\d+(?:\.\d+)?)\s*(?:x|×)\s*(-?\d+(?:\.\d+)?)/i)
+  if (arithmetic) {
+    const left = Number(arithmetic[1])
+    const right = Number(arithmetic[2])
+    if (Number.isFinite(left) && Number.isFinite(right)) return String(left * right)
+  }
+  const missing = question.prompt.match(/(-?\d+)?\s*_+\s*(?:x|×)\s*(-?\d+)\s*=\s*(-?\d+)/i)
+  if (missing) {
+    const known = Number(missing[2])
+    const product = Number(missing[3])
+    if (Number.isFinite(known) && known !== 0 && Number.isFinite(product)) return String(product / known)
+  }
+  const array = question.prompt.match(/array has\s+(\d+)\s+rows\s+and\s+(\d+)\s+columns/i)
+  if (array) return String(Number(array[1]) * Number(array[2]))
+  return null
+}
+
+function checkCurrentAnswer() {
+  const question = activeQuestion.value
+  if (!question) return
+  const answer = answers[question.number] || ""
+  if (!answer.trim()) {
+    message.value = "Enter an answer first."
+    return
+  }
+  const expected = locallyExpectedAnswer(question)
+  const isCorrect = expected ? normalizeAnswer(answer) === normalizeAnswer(expected) : true
+  checkedAnswers[question.number] = isCorrect
+  if (isCorrect) {
+    streak.value += 1
+    bestStreak.value = Math.max(bestStreak.value, streak.value)
+    coins.value += 10 + Math.min(streak.value, 5) * 2
+    message.value = streak.value >= 3 ? `Correct. ${streak.value} in a row.` : "Correct. Keep going."
+  } else {
+    streak.value = 0
+    lives.value = Math.max(0, lives.value - 1)
+    message.value = lives.value > 0 ? "Not quite. Try the next one carefully." : "No lives left, but finish strong."
+  }
+}
+
+function goNext() {
+  if (!started.value) return
+  activeIndex.value = Math.min(started.value.questions.length - 1, activeIndex.value + 1)
+  const nextQuestion = started.value.questions[activeIndex.value]
+  message.value = nextQuestion && checkedAnswers[nextQuestion.number] === undefined
+    ? "New challenge ready."
+    : "Review this challenge or move again."
+}
+
+function goPrevious() {
+  activeIndex.value = Math.max(0, activeIndex.value - 1)
 }
 
 async function submitActivity() {
@@ -202,25 +293,70 @@ onMounted(() => {
             <p class="eyebrow">{{ started.activity.grade_label }}</p>
             <h2>{{ started.activity.title }}</h2>
           </div>
-          <div class="progress-box">
-            <strong>{{ progress }}%</strong>
-            <span>answered</span>
+          <div class="hud">
+            <div class="hud-item">
+              <strong>{{ coins }}</strong>
+              <span>coins</span>
+            </div>
+            <div class="hud-item">
+              <strong>{{ streak }}</strong>
+              <span>streak</span>
+            </div>
+            <div class="hud-item lives">
+              <strong>{{ "♥".repeat(lives) || "0" }}</strong>
+              <span>lives</span>
+            </div>
           </div>
         </header>
 
-        <div v-if="!result" class="question-grid">
-          <label v-for="question in started.questions" :key="question.number" class="question-card">
-            <span class="question-number">{{ question.number }}</span>
-            <strong>{{ question.prompt }}</strong>
-            <input v-model="answers[question.number]" autocomplete="off" inputmode="decimal" placeholder="Answer" />
-          </label>
+        <div v-if="!result" class="game-panel">
+          <div class="progress-track">
+            <span :style="{ width: `${progress}%` }"></span>
+          </div>
+          <div class="game-message">{{ message }}</div>
+
+          <article v-if="activeQuestion" :class="questionStatus === true ? 'challenge-card correct' : questionStatus === false ? 'challenge-card wrong' : 'challenge-card'">
+            <div class="challenge-top">
+              <span class="question-number">{{ activeQuestion.number }}</span>
+              <span class="kind-pill">{{ activeQuestion.kind }}</span>
+              <span>{{ activeIndex + 1 }} / {{ started.questions.length }}</span>
+            </div>
+            <h3>{{ activeQuestion.prompt }}</h3>
+            <input
+              v-model="answers[activeQuestion.number]"
+              autocomplete="off"
+              inputmode="decimal"
+              placeholder="Type your answer"
+              :disabled="questionStatus !== undefined"
+              @keyup.enter="questionStatus === undefined ? checkCurrentAnswer() : goNext()"
+            />
+            <div class="challenge-actions">
+              <button class="ghost" type="button" :disabled="activeIndex === 0" @click="goPrevious">Previous</button>
+              <button v-if="questionStatus === undefined" class="primary" type="button" @click="checkCurrentAnswer">Check</button>
+              <button v-else class="primary" type="button" :disabled="activeIndex === started.questions.length - 1" @click="goNext">
+                Next
+              </button>
+            </div>
+          </article>
+
+          <div class="question-map">
+            <button
+              v-for="(question, index) in started.questions"
+              :key="question.number"
+              :class="checkedAnswers[question.number] === true ? 'map-dot correct' : checkedAnswers[question.number] === false ? 'map-dot wrong' : index === activeIndex ? 'map-dot active' : 'map-dot'"
+              type="button"
+              @click="activeIndex = index"
+            >
+              {{ question.number }}
+            </button>
+          </div>
         </div>
 
         <div v-else class="results-panel">
           <div class="score-card">
-            <span>Your score</span>
+            <span>{{ rankLabel }}</span>
             <strong>{{ result.score }} / {{ result.total }}</strong>
-            <span>{{ result.percentage_score }}%</span>
+            <span>{{ result.percentage_score }}% · {{ coins }} coins · best streak {{ bestStreak }}</span>
           </div>
           <div class="result-list">
             <div
@@ -234,8 +370,8 @@ onMounted(() => {
           </div>
         </div>
 
-        <button v-if="!result" class="primary submit-button" type="button" :disabled="loading" @click="submitActivity">
-          {{ loading ? "Submitting..." : "Submit answers" }}
+        <button v-if="!result" class="primary submit-button" type="button" :disabled="loading || !gameComplete" @click="submitActivity">
+          {{ loading ? "Submitting..." : gameComplete ? "Finish game" : `Answer ${started.questions.length - answeredCount} more` }}
         </button>
       </section>
     </div>
@@ -336,32 +472,106 @@ input {
   gap: 1rem;
 }
 
-.progress-box {
+.hud {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.hud-item {
+  min-width: 76px;
   display: grid;
   place-items: center;
   border-radius: 14px;
   background: var(--accent-soft);
   color: var(--accent);
-  padding: 0.7rem 1rem;
+  padding: 0.65rem 0.8rem;
 }
 
-.progress-box strong {
-  font-size: 1.25rem;
+.hud-item strong {
+  font-size: 1.2rem;
 }
 
-.question-grid {
+.hud-item span {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.hud-item.lives {
+  color: var(--accent-2);
+  background: var(--accent-2-soft);
+}
+
+.game-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.9rem;
+  gap: 1rem;
 }
 
-.question-card {
-  position: relative;
+.progress-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(29, 31, 27, 0.08);
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.25s ease;
+}
+
+.game-message {
   border: 1px solid var(--border-soft);
   border-radius: 14px;
-  padding: 1rem;
+  background: #fafbf8;
+  padding: 0.75rem 0.9rem;
+  color: var(--ink-muted);
+}
+
+.challenge-card {
+  position: relative;
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  padding: 1.25rem;
   background: #fff;
   color: var(--ink-strong);
+  display: grid;
+  gap: 1rem;
+}
+
+.challenge-card.correct {
+  border-color: rgba(47, 107, 79, 0.45);
+  background: #f0f7f2;
+}
+
+.challenge-card.wrong {
+  border-color: rgba(201, 107, 60, 0.45);
+  background: #fff8f5;
+}
+
+.challenge-top,
+.challenge-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.challenge-card h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.35;
+}
+
+.kind-pill {
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0.3rem 0.65rem;
+  font-size: 0.8rem;
 }
 
 .question-number {
@@ -373,6 +583,38 @@ input {
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 700;
+}
+
+.question-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.map-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: #fff;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.map-dot.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.map-dot.correct {
+  background: var(--accent);
+  color: #fff;
+}
+
+.map-dot.wrong {
+  background: var(--accent-2);
+  color: #fff;
 }
 
 .submit-button {
@@ -419,6 +661,8 @@ input {
 
 @media (max-width: 640px) {
   .activity-header,
+  .challenge-top,
+  .challenge-actions,
   .result-row {
     flex-direction: column;
   }
