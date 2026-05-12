@@ -20,6 +20,8 @@ type ActivityCode = {
   id: number
   code: string
   label?: string | null
+  student_id?: number | null
+  student_name?: string | null
   max_uses?: number | null
   used_count: number
   is_active: boolean
@@ -49,13 +51,13 @@ const form = reactive({
   title: "Multiplication Fluency Game",
   description: "Interactive multiplication practice for today's lesson.",
   gradeLabel: "Grade 4",
+  stream: "",
   activityType: "practice",
   problemCount: 12,
   factorStart: 1,
   factorEnd: 12,
   tableStart: 1,
   tableEnd: 12,
-  codeCount: 30,
   codeMaxUses: 1,
   allowNickname: true,
   showFeedback: true,
@@ -96,13 +98,13 @@ async function createActivity() {
         title: form.title,
         description: form.description,
         grade_label: form.gradeLabel,
+        stream: form.stream || null,
         activity_type: form.activityType,
         problem_count: form.problemCount,
         factor_start: form.factorStart,
         factor_end: form.factorEnd,
         table_start: form.tableStart,
         table_end: form.tableEnd,
-        code_count: form.codeCount,
         code_max_uses: form.codeMaxUses,
         allow_nickname: form.allowNickname,
         show_feedback: form.showFeedback,
@@ -125,7 +127,7 @@ async function addCodes() {
   try {
     await api(`math/activities/${selected.value.id}/codes`, "POST", {
       auth: true,
-      body: { count: 10, max_uses: form.codeMaxUses, label_prefix: "Extra" },
+      body: { max_uses: form.codeMaxUses, only_missing_students: true },
     })
     await loadActivity(selected.value.id)
     await loadActivities()
@@ -187,6 +189,10 @@ onMounted(loadActivities)
             </select>
           </label>
           <label>
+            <span>Stream</span>
+            <input v-model="form.stream" placeholder="Optional" />
+          </label>
+          <label>
             <span>Mode</span>
             <select v-model="form.activityType">
               <option value="practice">Practice</option>
@@ -199,8 +205,8 @@ onMounted(loadActivities)
             <input v-model.number="form.problemCount" type="number" min="4" max="40" />
           </label>
           <label>
-            <span>Codes</span>
-            <input v-model.number="form.codeCount" type="number" min="1" max="120" />
+            <span>Uses per code</span>
+            <input v-model.number="form.codeMaxUses" type="number" min="1" max="100" />
           </label>
           <label>
             <span>Factor start</span>
@@ -219,6 +225,7 @@ onMounted(loadActivities)
             <input v-model.number="form.tableEnd" type="number" min="1" max="20" />
           </label>
         </div>
+        <p class="hint">Codes are generated automatically from active students in the selected class and stream.</p>
         <label class="check-row"><input v-model="form.allowNickname" type="checkbox" /> Allow learner name</label>
         <label class="check-row"><input v-model="form.showFeedback" type="checkbox" /> Show feedback after submit</label>
         <button class="primary" type="submit" :disabled="saving">{{ saving ? "Creating..." : "Create codes" }}</button>
@@ -253,7 +260,7 @@ onMounted(loadActivities)
               <p class="subtle">{{ selected.description }}</p>
             </div>
             <div class="detail-actions">
-              <button class="ghost" type="button" :disabled="codeLoading" @click="addCodes">Add 10 codes</button>
+              <button class="ghost" type="button" :disabled="codeLoading" @click="addCodes">Fill missing roster codes</button>
               <button class="primary" type="button" @click="downloadCodesPdf">Print codes PDF</button>
             </div>
           </div>
@@ -264,8 +271,8 @@ onMounted(loadActivities)
               <span class="stat-value small">{{ playUrl }}</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label">Attempts</span>
-              <span class="stat-value">{{ selected.attempt_count }}</span>
+              <span class="stat-label">Roster codes</span>
+              <span class="stat-value">{{ selected.code_count }}</span>
             </div>
             <div class="stat-card">
               <span class="stat-label">Submitted</span>
@@ -277,7 +284,7 @@ onMounted(loadActivities)
           <div class="code-grid">
             <div v-for="code in selectedCodes" :key="code.id" class="code-card">
               <strong>{{ code.code }}</strong>
-              <span>{{ code.label }}</span>
+              <span>{{ code.student_name || code.label }}</span>
               <span>{{ code.used_count }} / {{ code.max_uses }} used</span>
             </div>
           </div>
@@ -374,6 +381,12 @@ textarea {
   grid-template-columns: auto 1fr;
   align-items: center;
   color: var(--ink-strong);
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.82rem;
 }
 
 .activity-main {

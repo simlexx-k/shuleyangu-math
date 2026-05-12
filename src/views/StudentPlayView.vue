@@ -5,6 +5,12 @@ import { api } from "@/lib/api"
 
 type PlayActivity = {
   code: string
+  student?: {
+    id: number
+    name: string
+    class_level?: string | null
+    stream?: string | null
+  } | null
   activity: {
     id: number
     title: string
@@ -82,6 +88,7 @@ async function findCode(code = normalizedCode.value) {
   try {
     lookup.value = await api<PlayActivity>(`math/play/${encodeURIComponent(code)}`, "GET")
     codeInput.value = lookup.value.code
+    learner.name = lookup.value.student?.name || learner.name
     if (route.params.code !== lookup.value.code) {
       await router.replace({ name: "student-play-code", params: { code: lookup.value.code } })
     }
@@ -175,7 +182,12 @@ onMounted(() => {
           <span>{{ lookup.activity.activity_type }}</span>
           <span>Code {{ lookup.code }}</span>
         </div>
-        <label v-if="lookup.activity.settings.allow_nickname">
+        <div v-if="lookup.student" class="assigned-student">
+          <span>Assigned to</span>
+          <strong>{{ lookup.student.name }}</strong>
+          <span>{{ lookup.student.class_level }}{{ lookup.student.stream ? ` · ${lookup.student.stream}` : "" }}</span>
+        </div>
+        <label v-else-if="lookup.activity.settings.allow_nickname">
           <span>Your name</span>
           <input v-model="learner.name" autocomplete="name" placeholder="Write your name" />
         </label>
@@ -296,6 +308,19 @@ input {
   border: 1px solid var(--border-soft);
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
+  color: var(--ink-muted);
+}
+
+.assigned-student {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 0.9rem;
+  background: var(--accent-soft);
+}
+
+.assigned-student span {
   color: var(--ink-muted);
 }
 
