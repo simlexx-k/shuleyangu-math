@@ -33,7 +33,7 @@ const router = createRouter({
       meta: {
         requiresAuth: true,
         title: 'Multiplication Printouts',
-        description: 'Generate printable multiplication grids and times-table worksheets.',
+        description: 'Build grade-aware multiplication practice packs, teacher guidance, grids, and answer keys.',
       },
     },
     {

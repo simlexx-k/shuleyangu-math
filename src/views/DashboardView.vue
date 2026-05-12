@@ -8,7 +8,7 @@ const auth = useAuthStore()
 const tools = computed(() => [
   {
     name: "Multiplication Printouts",
-    description: "Generate printable multiplication grids and worksheets for classes.",
+    description: "Build grade-aware multiplication practice packs with guidance, grids, and answer keys.",
     status: "Ready",
     route: "/tools/multiplication-printouts",
     cta: "Open",
