@@ -37,6 +37,34 @@ const router = createRouter({
       },
     },
     {
+      path: '/tools/student-activities',
+      name: 'student-activities',
+      component: () => import('../views/StudentActivitiesView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Student Activities',
+        description: 'Create code-based interactive math activities and printable student code slips.',
+      },
+    },
+    {
+      path: '/play',
+      name: 'student-play',
+      component: () => import('../views/StudentPlayView.vue'),
+      meta: {
+        title: 'Student Play',
+        description: 'Join a Shuleyangu Math activity with a student code.',
+      },
+    },
+    {
+      path: '/play/:code',
+      name: 'student-play-code',
+      component: () => import('../views/StudentPlayView.vue'),
+      meta: {
+        title: 'Student Play',
+        description: 'Play a Shuleyangu Math activity using a class code.',
+      },
+    },
+    {
       path: '/tools/gcd-hcf',
       name: 'gcd-hcf',
       component: () => import('../views/GcdHcfView.vue'),

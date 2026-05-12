@@ -9,6 +9,8 @@ const router = useRouter()
 
 const navItems = computed(() => [
   { name: "Dashboard", to: "/" },
+  { name: "Student Activities", to: "/tools/student-activities" },
+  { name: "Student Play", to: "/play" },
   { name: "Science Labs", to: "/science" },
   { name: "Multiplication Printouts", to: "/tools/multiplication-printouts" },
   { name: "GCD / HCF Explorer", to: "/tools/gcd-hcf" },

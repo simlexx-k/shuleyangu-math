@@ -14,6 +14,13 @@ const tools = computed(() => [
     cta: "Open",
   },
   {
+    name: "Student Activities",
+    description: "Create interactive code-based math games and print code slips for learners.",
+    status: "Ready",
+    route: "/tools/student-activities",
+    cta: "Create",
+  },
+  {
     name: "GCD / HCF Explorer",
     description: "Calculate greatest common divisors and create practice worksheets.",
     status: "Ready",
