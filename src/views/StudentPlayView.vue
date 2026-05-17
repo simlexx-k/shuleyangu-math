@@ -30,6 +30,7 @@ type PlayQuestion = {
   kind: string
   prompt: string
   marks: number
+  options?: Array<{ label: string; text: string }>
 }
 
 type StartedActivity = {
@@ -182,7 +183,12 @@ function checkCurrentAnswer() {
     return
   }
   const expected = locallyExpectedAnswer(question)
-  const isCorrect = expected ? normalizeAnswer(answer) === normalizeAnswer(expected) : true
+  if (!expected) {
+    checkedAnswers[question.number] = true
+    message.value = "Answer saved. It will be graded when you finish."
+    return
+  }
+  const isCorrect = normalizeAnswer(answer) === normalizeAnswer(expected)
   checkedAnswers[question.number] = isCorrect
   if (isCorrect) {
     streak.value += 1
@@ -322,12 +328,26 @@ onMounted(() => {
               <span>{{ activeIndex + 1 }} / {{ started.questions.length }}</span>
             </div>
             <h3>{{ activeQuestion.prompt }}</h3>
+            <div v-if="activeQuestion.options?.length" class="option-grid">
+              <button
+                v-for="option in activeQuestion.options"
+                :key="option.label"
+                :class="answers[activeQuestion.number] === option.label ? 'option-button selected' : 'option-button'"
+                type="button"
+                :disabled="questionStatus !== undefined"
+                @click="answers[activeQuestion.number] = option.label"
+              >
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.text }}</span>
+              </button>
+            </div>
             <input
               v-model="answers[activeQuestion.number]"
               autocomplete="off"
               inputmode="decimal"
-              placeholder="Type your answer"
+              :placeholder="activeQuestion.options?.length ? 'Pick an option above' : 'Type your answer'"
               :disabled="questionStatus !== undefined"
+              :readonly="Boolean(activeQuestion.options?.length)"
               @keyup.enter="questionStatus === undefined ? checkCurrentAnswer() : goNext()"
             />
             <div class="challenge-actions">
@@ -564,6 +584,40 @@ input {
   margin: 0;
   font-size: 1.35rem;
   line-height: 1.35;
+}
+
+.option-grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.option-button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: center;
+  text-align: left;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: #fafbfa;
+  color: var(--ink-strong);
+  padding: 0.75rem;
+  cursor: pointer;
+}
+
+.option-button strong {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.option-button.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .kind-pill {
