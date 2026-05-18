@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 
 type PlayActivity = {
   code: string
+  resume_available?: boolean
   student?: {
     id: number
     name: string
@@ -35,6 +36,7 @@ type PlayQuestion = {
 
 type StartedActivity = {
   attempt_id: number
+  progress?: PlaySessionSnapshot | null
   activity: {
     id: number
     title: string
@@ -153,6 +155,54 @@ function clearPlaySession(code: string, learnerName: string) {
   }
 }
 
+function snapshotForCurrentSession(): PlaySessionSnapshot | null {
+  if (!started.value || !lookup.value) return null
+  return {
+    attemptId: started.value.attempt_id,
+    code: lookup.value.code,
+    learnerName: learner.name || lookup.value.student?.name || "Learner",
+    answers: { ...answers },
+    checkedAnswers: { ...checkedAnswers },
+    activeIndex: activeIndex.value,
+    coins: coins.value,
+    streak: streak.value,
+    bestStreak: bestStreak.value,
+    lives: lives.value,
+    message: message.value,
+  }
+}
+
+function writeLocalPlaySession(snapshot: PlaySessionSnapshot) {
+  writePlaySession(snapshot)
+}
+
+async function writeRemotePlaySession(snapshot: PlaySessionSnapshot) {
+  await api(`math/play/${encodeURIComponent(snapshot.code)}/progress`, "POST", {
+    body: {
+      attempt_id: snapshot.attemptId,
+      answers: snapshot.answers,
+      checked_answers: snapshot.checkedAnswers,
+      active_index: snapshot.activeIndex,
+      coins: snapshot.coins,
+      streak: snapshot.streak,
+      best_streak: snapshot.bestStreak,
+      lives: snapshot.lives,
+      message: snapshot.message,
+    },
+  })
+}
+
+async function persistProgressNow() {
+  const snapshot = snapshotForCurrentSession()
+  if (!snapshot || result.value) return
+  writeLocalPlaySession(snapshot)
+  try {
+    await writeRemotePlaySession(snapshot)
+  } catch {
+    // Local fallback still lets the same browser resume if the network drops.
+  }
+}
+
 function resetProgressForQuestions(questions: PlayQuestion[]) {
   for (const key of Object.keys(answers)) delete answers[Number(key)]
   for (const key of Object.keys(checkedAnswers)) delete checkedAnswers[Number(key)]
@@ -212,11 +262,13 @@ async function startActivity() {
     started.value = await api<StartedActivity>(`math/play/${encodeURIComponent(lookup.value.code)}/start`, "POST", {
       body: { learner_name: learner.name },
     })
-    const savedSession = readPlaySession(lookup.value.code, learner.name || lookup.value.student?.name || "Learner")
+    const serverSession = started.value.progress
+    const localSession = readPlaySession(lookup.value.code, learner.name || lookup.value.student?.name || "Learner")
+    const savedSession = serverSession?.attemptId === started.value.attempt_id ? serverSession : localSession
     if (savedSession?.attemptId === started.value.attempt_id) {
       restoredSession.value = true
       restoreProgressFromSession(savedSession, started.value.questions)
-      message.value = "Activity resumed. Continue where you left off."
+      message.value = serverSession ? "Activity resumed from your saved progress." : "Activity resumed on this device."
     } else {
       restoredSession.value = false
       resetProgressForQuestions(started.value.questions)
@@ -291,31 +343,21 @@ function goPrevious() {
   activeIndex.value = Math.max(0, activeIndex.value - 1)
 }
 
-function saveAndLeave() {
-  if (started.value && lookup.value && !result.value) {
-    writePlaySession({
-      attemptId: started.value.attempt_id,
-      code: lookup.value.code,
-      learnerName: learner.name || lookup.value.student?.name || "Learner",
-      answers: { ...answers },
-      checkedAnswers: { ...checkedAnswers },
-      activeIndex: activeIndex.value,
-      coins: coins.value,
-      streak: streak.value,
-      bestStreak: bestStreak.value,
-      lives: lives.value,
-      message: message.value,
-    })
-  }
+async function saveAndLeave() {
+  await persistProgressNow()
   started.value = null
   result.value = null
-  message.value = "Activity saved. Use the same code to resume."
+  message.value = "Activity saved. Use the same code on any device to resume."
 }
 
 async function submitActivity() {
   if (!lookup.value || !started.value) return
   loading.value = true
   error.value = null
+  if (saveTimer) {
+    window.clearTimeout(saveTimer)
+    saveTimer = null
+  }
   try {
     result.value = await api<SubmitResult>(`math/play/${encodeURIComponent(lookup.value.code)}/submit`, "POST", {
       body: {
@@ -326,10 +368,6 @@ async function submitActivity() {
         })),
       },
     })
-    if (saveTimer) {
-      window.clearTimeout(saveTimer)
-      saveTimer = null
-    }
     clearPlaySession(lookup.value.code, learner.name || lookup.value.student?.name || "Learner")
   } catch (err: any) {
     error.value = err?.message || "Could not submit answers"
@@ -345,19 +383,7 @@ watch(
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
       if (!started.value || result.value || !lookup.value) return
-      writePlaySession({
-        attemptId: started.value.attempt_id,
-        code: lookup.value.code,
-        learnerName: learner.name || lookup.value.student?.name || "Learner",
-        answers: { ...answers },
-        checkedAnswers: { ...checkedAnswers },
-        activeIndex: activeIndex.value,
-        coins: coins.value,
-        streak: streak.value,
-        bestStreak: bestStreak.value,
-        lives: lives.value,
-        message: message.value,
-      })
+      void persistProgressNow()
     }, restoredSession.value ? 250 : 650)
   },
   { deep: true },
