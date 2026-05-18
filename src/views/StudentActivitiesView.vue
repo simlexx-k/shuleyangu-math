@@ -28,15 +28,19 @@ type ActivityCode = {
   is_active: boolean
 }
 
+type ActivityQuestion = {
+  number: number
+  kind: string
+  prompt: string
+  marks: number
+  answer?: string | null
+  accepted_answers?: string[]
+  options?: Array<{ label: string; text: string }>
+}
+
 type ActivityDetail = ActivitySummary & {
   codes: ActivityCode[]
-  questions?: Array<{
-    number: number
-    kind: string
-    prompt: string
-    marks: number
-    options?: Array<{ label: string; text: string }>
-  }>
+  questions?: ActivityQuestion[]
   attempts: Array<{
     id: number
     learner_name?: string | null
@@ -100,9 +104,12 @@ const error = ref<string | null>(null)
 const codeLoading = ref(false)
 const importLoading = ref(false)
 const attemptLoading = ref(false)
+const answerSaving = ref(false)
 const loadingAttemptId = ref<number | null>(null)
 const importSuccess = ref<string | null>(null)
+const answerSuccess = ref<string | null>(null)
 const auth = useAuthStore()
+const answerDrafts = reactive<Record<number, { answer: string; acceptedText: string }>>({})
 
 const form = reactive({
   title: "Multiplication Fluency Game",
@@ -139,6 +146,25 @@ const selectedCodes = computed(() => selected.value?.codes ?? [])
 const playUrl = computed(() => `${window.location.origin}/play`)
 const selectedQuiz = computed(() => quizzes.value.find((quiz) => quiz.id === importForm.quizId) ?? null)
 const selectedQuestionCount = computed(() => selectedQuiz.value?.questions?.filter((question) => importForm.onlyIncludedQuestions ? question.is_included !== false : true).length ?? 0)
+
+function initializeAnswerDrafts(questions: ActivityQuestion[] = []) {
+  for (const key of Object.keys(answerDrafts)) delete answerDrafts[Number(key)]
+  for (const question of questions) {
+    const canonical = question.answer || ""
+    const aliases = (question.accepted_answers || []).filter((value) => value && value !== canonical)
+    answerDrafts[question.number] = {
+      answer: canonical,
+      acceptedText: aliases.join(", "),
+    }
+  }
+}
+
+function setAnswerDraft(questionNumber: number, field: "answer" | "acceptedText", value: string) {
+  if (!answerDrafts[questionNumber]) {
+    answerDrafts[questionNumber] = { answer: "", acceptedText: "" }
+  }
+  answerDrafts[questionNumber][field] = value
+}
 
 async function loadActivities() {
   loading.value = true
@@ -180,6 +206,8 @@ async function loadActivity(id: number) {
   error.value = null
   selected.value = await api<ActivityDetail>(`math/activities/${id}`, "GET", { auth: true })
   selectedAttempt.value = null
+  answerSuccess.value = null
+  initializeAnswerDrafts(selected.value.questions)
 }
 
 async function loadAttempt(attemptId: number) {
@@ -306,6 +334,37 @@ async function addCodes() {
     error.value = err?.message || "Failed to add codes"
   } finally {
     codeLoading.value = false
+  }
+}
+
+async function saveExpectedAnswers() {
+  if (!selected.value) return
+  answerSaving.value = true
+  error.value = null
+  answerSuccess.value = null
+  try {
+    selected.value = await api<ActivityDetail>(`math/activities/${selected.value.id}/expected-answers`, "PUT", {
+      auth: true,
+      body: {
+        answers: (selected.value.questions || []).map((question) => {
+          const draft = answerDrafts[question.number] || { answer: "", acceptedText: "" }
+          return {
+            question_number: question.number,
+            answer: draft.answer,
+            accepted_answers: draft.acceptedText
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          }
+        }),
+      },
+    })
+    initializeAnswerDrafts(selected.value.questions)
+    answerSuccess.value = "Expected answers saved. Future submissions will use this answer key."
+  } catch (err: any) {
+    error.value = err?.message || "Failed to save expected answers"
+  } finally {
+    answerSaving.value = false
   }
 }
 
@@ -536,6 +595,50 @@ onMounted(async () => {
               <span class="stat-label">Submitted</span>
               <span class="stat-value">{{ selected.submitted_count }}</span>
             </div>
+          </div>
+
+          <div class="answer-key-panel">
+            <div class="panel-title">
+              <div>
+                <h3>Expected answers</h3>
+                <p class="subtle">Set the answer key used when student attempts are graded.</p>
+              </div>
+              <button class="primary" type="button" :disabled="answerSaving || !selected.questions?.length" @click="saveExpectedAnswers">
+                {{ answerSaving ? "Saving..." : "Save answer key" }}
+              </button>
+            </div>
+            <div class="answer-editor-list">
+              <article v-for="question in selected.questions" :key="question.number" class="answer-editor-card">
+                <div class="question-context">
+                  <strong>Question {{ question.number }}</strong>
+                  <span>{{ question.marks }} mark{{ question.marks === 1 ? "" : "s" }}</span>
+                </div>
+                <p>{{ question.prompt }}</p>
+                <div v-if="question.options?.length" class="option-list">
+                  <span v-for="option in question.options" :key="option.label">{{ option.label }}. {{ option.text }}</span>
+                </div>
+                <div class="answer-edit-grid">
+                  <label>
+                    <span>Expected answer</span>
+                    <input
+                      :value="answerDrafts[question.number]?.answer ?? ''"
+                      placeholder="Canonical answer"
+                      @input="setAnswerDraft(question.number, 'answer', ($event.target as HTMLInputElement).value)"
+                    />
+                  </label>
+                  <label>
+                    <span>Other accepted answers</span>
+                    <input
+                      :value="answerDrafts[question.number]?.acceptedText ?? ''"
+                      placeholder="Comma separated aliases"
+                      @input="setAnswerDraft(question.number, 'acceptedText', ($event.target as HTMLInputElement).value)"
+                    />
+                  </label>
+                </div>
+              </article>
+              <p v-if="!selected.questions?.length" class="subtle">No questions available for this activity.</p>
+            </div>
+            <p v-if="answerSuccess" class="success">{{ answerSuccess }}</p>
           </div>
 
           <h3>Codes</h3>
@@ -781,6 +884,66 @@ textarea {
   margin: 1rem 0;
 }
 
+.answer-key-panel {
+  display: grid;
+  gap: 0.85rem;
+  margin: 1rem 0 1.25rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.answer-editor-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.answer-editor-card {
+  display: grid;
+  gap: 0.65rem;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 0.85rem;
+  background: #fafbf8;
+}
+
+.answer-editor-card p {
+  margin: 0;
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.question-context,
+.option-list {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.question-context span,
+.option-list span {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+}
+
+.option-list span {
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  background: #fff;
+}
+
+.answer-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+  gap: 0.75rem;
+}
+
 .stat-value.small {
   font-size: 0.9rem;
   word-break: break-all;
@@ -966,6 +1129,7 @@ textarea {
   .import-summary,
   .attempt-summary,
   .answer-grid,
+  .answer-edit-grid,
   .attempt-row {
     grid-template-columns: 1fr;
   }
