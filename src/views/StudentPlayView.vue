@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { api } from "@/lib/api"
 
@@ -57,6 +57,22 @@ type SubmitResult = {
   }>
 }
 
+type PlaySessionSnapshot = {
+  attemptId: number
+  code: string
+  learnerName: string
+  answers: Record<number, string>
+  checkedAnswers: Record<number, boolean | undefined>
+  activeIndex: number
+  coins: number
+  streak: number
+  bestStreak: number
+  lives: number
+  message: string
+}
+
+const MAX_LIVES = 3
+
 const route = useRoute()
 const router = useRouter()
 
@@ -79,6 +95,8 @@ const streak = ref(0)
 const bestStreak = ref(0)
 const lives = ref(3)
 const message = ref("Solve the first challenge to start your streak.")
+const restoredSession = ref(false)
+let saveTimer: ReturnType<typeof window.setTimeout> | null = null
 
 const normalizedCode = computed(() => codeInput.value.trim().toUpperCase())
 const progress = computed(() => {
@@ -105,6 +123,65 @@ const rankLabel = computed(() => {
   if (score >= 50) return "Strategy Builder"
   return "Keep Practicing"
 })
+
+function sessionStorageKey(code: string, learnerName: string) {
+  return `shuleyangu-math-play:${code}:${learnerName.trim().toLowerCase() || "learner"}`
+}
+
+function readPlaySession(code: string, learnerName: string) {
+  try {
+    const stored = window.localStorage.getItem(sessionStorageKey(code, learnerName))
+    return stored ? (JSON.parse(stored) as PlaySessionSnapshot) : null
+  } catch {
+    return null
+  }
+}
+
+function writePlaySession(snapshot: PlaySessionSnapshot) {
+  try {
+    window.localStorage.setItem(sessionStorageKey(snapshot.code, snapshot.learnerName), JSON.stringify(snapshot))
+  } catch {
+    // Local resume should never block play.
+  }
+}
+
+function clearPlaySession(code: string, learnerName: string) {
+  try {
+    window.localStorage.removeItem(sessionStorageKey(code, learnerName))
+  } catch {
+    // Best effort cleanup.
+  }
+}
+
+function resetProgressForQuestions(questions: PlayQuestion[]) {
+  for (const key of Object.keys(answers)) delete answers[Number(key)]
+  for (const key of Object.keys(checkedAnswers)) delete checkedAnswers[Number(key)]
+  for (const question of questions) {
+    answers[question.number] = ""
+    checkedAnswers[question.number] = undefined
+  }
+  activeIndex.value = 0
+  coins.value = 0
+  streak.value = 0
+  bestStreak.value = 0
+  lives.value = MAX_LIVES
+  message.value = "Solve the first challenge to start your streak."
+}
+
+function restoreProgressFromSession(session: PlaySessionSnapshot, questions: PlayQuestion[]) {
+  for (const key of Object.keys(answers)) delete answers[Number(key)]
+  for (const key of Object.keys(checkedAnswers)) delete checkedAnswers[Number(key)]
+  for (const question of questions) {
+    answers[question.number] = session.answers[question.number] ?? ""
+    checkedAnswers[question.number] = session.checkedAnswers[question.number]
+  }
+  activeIndex.value = Math.min(questions.length - 1, Math.max(0, session.activeIndex))
+  coins.value = session.coins
+  streak.value = session.streak
+  bestStreak.value = session.bestStreak
+  lives.value = session.lives
+  message.value = session.message || "Activity resumed. Continue where you left off."
+}
 
 async function findCode(code = normalizedCode.value) {
   if (!code) return
@@ -135,16 +212,15 @@ async function startActivity() {
     started.value = await api<StartedActivity>(`math/play/${encodeURIComponent(lookup.value.code)}/start`, "POST", {
       body: { learner_name: learner.name },
     })
-    for (const question of started.value.questions) {
-      answers[question.number] = ""
-      checkedAnswers[question.number] = undefined
+    const savedSession = readPlaySession(lookup.value.code, learner.name || lookup.value.student?.name || "Learner")
+    if (savedSession?.attemptId === started.value.attempt_id) {
+      restoredSession.value = true
+      restoreProgressFromSession(savedSession, started.value.questions)
+      message.value = "Activity resumed. Continue where you left off."
+    } else {
+      restoredSession.value = false
+      resetProgressForQuestions(started.value.questions)
     }
-    activeIndex.value = 0
-    coins.value = 0
-    streak.value = 0
-    bestStreak.value = 0
-    lives.value = 3
-    message.value = "Solve the first challenge to start your streak."
   } catch (err: any) {
     error.value = err?.message || "Could not start activity"
   } finally {
@@ -215,6 +291,27 @@ function goPrevious() {
   activeIndex.value = Math.max(0, activeIndex.value - 1)
 }
 
+function saveAndLeave() {
+  if (started.value && lookup.value && !result.value) {
+    writePlaySession({
+      attemptId: started.value.attempt_id,
+      code: lookup.value.code,
+      learnerName: learner.name || lookup.value.student?.name || "Learner",
+      answers: { ...answers },
+      checkedAnswers: { ...checkedAnswers },
+      activeIndex: activeIndex.value,
+      coins: coins.value,
+      streak: streak.value,
+      bestStreak: bestStreak.value,
+      lives: lives.value,
+      message: message.value,
+    })
+  }
+  started.value = null
+  result.value = null
+  message.value = "Activity saved. Use the same code to resume."
+}
+
 async function submitActivity() {
   if (!lookup.value || !started.value) return
   loading.value = true
@@ -229,12 +326,42 @@ async function submitActivity() {
         })),
       },
     })
+    if (saveTimer) {
+      window.clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    clearPlaySession(lookup.value.code, learner.name || lookup.value.student?.name || "Learner")
   } catch (err: any) {
     error.value = err?.message || "Could not submit answers"
   } finally {
     loading.value = false
   }
 }
+
+watch(
+  [started, result, activeIndex, coins, streak, bestStreak, lives, message, () => ({ ...answers }), () => ({ ...checkedAnswers })],
+  () => {
+    if (!started.value || result.value || !lookup.value) return
+    if (saveTimer) window.clearTimeout(saveTimer)
+    saveTimer = window.setTimeout(() => {
+      if (!started.value || result.value || !lookup.value) return
+      writePlaySession({
+        attemptId: started.value.attempt_id,
+        code: lookup.value.code,
+        learnerName: learner.name || lookup.value.student?.name || "Learner",
+        answers: { ...answers },
+        checkedAnswers: { ...checkedAnswers },
+        activeIndex: activeIndex.value,
+        coins: coins.value,
+        streak: streak.value,
+        bestStreak: bestStreak.value,
+        lives: lives.value,
+        message: message.value,
+      })
+    }, restoredSession.value ? 250 : 650)
+  },
+  { deep: true },
+)
 
 function resultFor(questionNumber: number) {
   return result.value?.results.find((item) => item.question_number === questionNumber)
@@ -298,6 +425,7 @@ onMounted(() => {
           <div>
             <p class="eyebrow">{{ started.activity.grade_label }}</p>
             <h2>{{ started.activity.title }}</h2>
+            <p v-if="restoredSession" class="resume-note">Resume active: your saved web progress was restored.</p>
           </div>
           <div class="hud">
             <div class="hud-item">
@@ -393,6 +521,7 @@ onMounted(() => {
         <button v-if="!result" class="primary submit-button" type="button" :disabled="loading || !gameComplete" @click="submitActivity">
           {{ loading ? "Submitting..." : gameComplete ? "Finish game" : `Answer ${started.questions.length - answeredCount} more` }}
         </button>
+        <button v-if="!result" class="ghost save-button" type="button" @click="saveAndLeave">Save and leave</button>
       </section>
     </div>
   </section>
@@ -496,6 +625,13 @@ input {
   display: flex;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+
+.resume-note {
+  margin: 0.35rem 0 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .hud-item {
@@ -675,6 +811,10 @@ input {
   justify-self: end;
 }
 
+.save-button {
+  justify-self: end;
+}
+
 .results-panel {
   display: grid;
   gap: 1rem;
@@ -721,7 +861,8 @@ input {
     flex-direction: column;
   }
 
-  .submit-button {
+  .submit-button,
+  .save-button {
     justify-self: stretch;
   }
 }
