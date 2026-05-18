@@ -40,12 +40,42 @@ type ActivityDetail = ActivitySummary & {
   attempts: Array<{
     id: number
     learner_name?: string | null
+    started_at?: string | null
+    completed_at?: string | null
     code?: string | null
     score?: number | null
     total?: number | null
     percentage_score?: number | null
     is_submitted: boolean
   }>
+}
+
+type AttemptAnswer = {
+  question_number: number
+  prompt: string
+  answer: string
+  correct_answer?: string | null
+  is_correct?: boolean | null
+  points_awarded?: number | null
+  points_possible?: number | null
+  status: "submitted" | "draft" | "unanswered"
+}
+
+type AttemptDetail = {
+  id: number
+  activity_id: number
+  activity_title: string
+  learner_name?: string | null
+  student_name?: string | null
+  code?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  score?: number | null
+  total?: number | null
+  percentage_score?: number | null
+  is_submitted: boolean
+  draft_saved_at?: string | null
+  answers: AttemptAnswer[]
 }
 
 type QueezyQuiz = {
@@ -61,6 +91,7 @@ type QueezyQuiz = {
 
 const activities = ref<ActivitySummary[]>([])
 const selected = ref<ActivityDetail | null>(null)
+const selectedAttempt = ref<AttemptDetail | null>(null)
 const quizzes = ref<QueezyQuiz[]>([])
 const quizLoading = ref(false)
 const loading = ref(false)
@@ -68,6 +99,8 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const codeLoading = ref(false)
 const importLoading = ref(false)
+const attemptLoading = ref(false)
+const loadingAttemptId = ref<number | null>(null)
 const importSuccess = ref<string | null>(null)
 const auth = useAuthStore()
 
@@ -146,6 +179,40 @@ async function loadQuizzes() {
 async function loadActivity(id: number) {
   error.value = null
   selected.value = await api<ActivityDetail>(`math/activities/${id}`, "GET", { auth: true })
+  selectedAttempt.value = null
+}
+
+async function loadAttempt(attemptId: number) {
+  if (!selected.value) return
+  attemptLoading.value = true
+  loadingAttemptId.value = attemptId
+  error.value = null
+  try {
+    selectedAttempt.value = await api<AttemptDetail>(`math/activities/${selected.value.id}/attempts/${attemptId}`, "GET", { auth: true })
+  } catch (err: any) {
+    error.value = err?.message || "Failed to load student answers"
+  } finally {
+    attemptLoading.value = false
+    loadingAttemptId.value = null
+  }
+}
+
+function closeAttempt() {
+  selectedAttempt.value = null
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+function answerStatusLabel(answer: AttemptAnswer) {
+  if (answer.status === "unanswered") return "Unanswered"
+  if (answer.is_correct === true) return "Correct"
+  if (answer.is_correct === false) return "Wrong"
+  return answer.status === "draft" ? "Saved draft" : "Submitted"
 }
 
 async function createActivity() {
@@ -486,14 +553,74 @@ onMounted(async () => {
               <span>Learner</span>
               <span>Code</span>
               <span>Score</span>
+              <span>Action</span>
             </div>
-            <div v-for="attempt in selected.attempts" :key="attempt.id" class="attempt-row">
+            <button v-for="attempt in selected.attempts" :key="attempt.id" class="attempt-row attempt-button" type="button" @click="loadAttempt(attempt.id)">
               <span>{{ attempt.learner_name || "Unnamed" }}</span>
               <span>{{ attempt.code }}</span>
               <span>{{ attempt.is_submitted ? `${attempt.score}/${attempt.total} (${attempt.percentage_score}%)` : "In progress" }}</span>
-            </div>
+              <span class="view-answers">{{ loadingAttemptId === attempt.id ? "Loading..." : "View answers" }}</span>
+            </button>
             <p v-if="!selected.attempts.length" class="subtle">No attempts yet.</p>
           </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="selectedAttempt" class="modal-backdrop" @click.self="closeAttempt">
+      <section class="answer-modal" role="dialog" aria-modal="true" aria-labelledby="attempt-title">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Student attempt</p>
+            <h2 id="attempt-title">{{ selectedAttempt.student_name || selectedAttempt.learner_name || "Learner" }}</h2>
+            <p class="subtle">{{ selectedAttempt.activity_title }} · {{ selectedAttempt.code }}</p>
+          </div>
+          <button class="ghost" type="button" @click="closeAttempt">Close</button>
+        </div>
+
+        <div class="attempt-summary">
+          <div>
+            <span class="stat-label">Status</span>
+            <strong>{{ selectedAttempt.is_submitted ? "Submitted" : "In progress" }}</strong>
+          </div>
+          <div>
+            <span class="stat-label">Score</span>
+            <strong>{{ selectedAttempt.is_submitted ? `${selectedAttempt.score}/${selectedAttempt.total} (${selectedAttempt.percentage_score}%)` : "Not submitted" }}</strong>
+          </div>
+          <div>
+            <span class="stat-label">Started</span>
+            <strong>{{ formatDateTime(selectedAttempt.started_at) }}</strong>
+          </div>
+          <div>
+            <span class="stat-label">{{ selectedAttempt.is_submitted ? "Completed" : "Saved" }}</span>
+            <strong>{{ formatDateTime(selectedAttempt.completed_at || selectedAttempt.draft_saved_at) }}</strong>
+          </div>
+        </div>
+
+        <div class="answers-list">
+          <article v-for="answer in selectedAttempt.answers" :key="answer.question_number" class="answer-card">
+            <div class="answer-head">
+              <strong>Question {{ answer.question_number }}</strong>
+              <span :class="['answer-status', answer.is_correct === true ? 'correct' : answer.is_correct === false ? 'wrong' : answer.status]">
+                {{ answerStatusLabel(answer) }}
+              </span>
+            </div>
+            <p class="question-prompt">{{ answer.prompt }}</p>
+            <div class="answer-grid">
+              <div>
+                <span class="stat-label">Student answer</span>
+                <strong>{{ answer.answer || "—" }}</strong>
+              </div>
+              <div>
+                <span class="stat-label">Expected answer</span>
+                <strong>{{ answer.correct_answer || "—" }}</strong>
+              </div>
+              <div>
+                <span class="stat-label">Marks</span>
+                <strong>{{ answer.points_awarded ?? "—" }} / {{ answer.points_possible ?? "—" }}</strong>
+              </div>
+            </div>
+          </article>
         </div>
       </section>
     </div>
@@ -687,10 +814,33 @@ textarea {
 
 .attempt-row {
   display: grid;
-  grid-template-columns: 1.4fr 0.8fr 1fr;
+  grid-template-columns: 1.4fr 0.8fr 1fr 0.7fr;
   gap: 0.75rem;
   border-bottom: 1px solid var(--border-soft);
   padding: 0.45rem 0;
+}
+
+.attempt-button {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.attempt-button:hover,
+.attempt-button:focus-visible {
+  background: #f5f8f3;
+  outline: none;
+}
+
+.view-answers {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .attempt-row.heading {
@@ -698,6 +848,106 @@ textarea {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(12, 18, 14, 0.48);
+}
+
+.answer-modal {
+  width: min(960px, 100%);
+  max-height: min(860px, 92vh);
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 16px;
+  background: var(--card-bg);
+  padding: 1.25rem;
+  box-shadow: 0 24px 70px rgba(14, 20, 17, 0.22);
+}
+
+.modal-header,
+.answer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.modal-header h2 {
+  margin: 0.25rem 0;
+  font-family: "Source Serif 4", serif;
+}
+
+.attempt-summary,
+.answer-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.attempt-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.attempt-summary > div,
+.answer-grid > div {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fafbf8;
+}
+
+.answers-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.answer-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #fff;
+}
+
+.answer-status {
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  background: #edf0ec;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.answer-status.correct {
+  background: #dff5df;
+  color: #237044;
+}
+
+.answer-status.wrong {
+  background: #ffe5df;
+  color: #9b3324;
+}
+
+.answer-status.draft {
+  background: #fff1ce;
+  color: #8b6200;
+}
+
+.question-prompt {
+  margin: 0.75rem 0;
+  color: var(--ink-strong);
+  font-weight: 700;
+}
+
+.answer-grid {
+  grid-template-columns: 1fr 1fr 0.6fr;
 }
 
 @media (max-width: 960px) {
@@ -714,6 +964,8 @@ textarea {
   .field-grid,
   .import-grid,
   .import-summary,
+  .attempt-summary,
+  .answer-grid,
   .attempt-row {
     grid-template-columns: 1fr;
   }
