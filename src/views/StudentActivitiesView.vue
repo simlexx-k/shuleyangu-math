@@ -107,10 +107,13 @@ const attemptLoading = ref(false)
 const answerSaving = ref(false)
 const scoringRefreshing = ref(false)
 const outcomesLoading = ref(false)
+const pendingSubmitting = ref(false)
 const loadingAttemptId = ref<number | null>(null)
+const submittingAttemptId = ref<number | null>(null)
 const importSuccess = ref<string | null>(null)
 const answerSuccess = ref<string | null>(null)
 const scoringSuccess = ref<string | null>(null)
+const pendingSubmitSuccess = ref<string | null>(null)
 const auth = useAuthStore()
 const answerDrafts = reactive<Record<number, { answer: string; acceptedText: string }>>({})
 
@@ -149,6 +152,7 @@ const selectedCodes = computed(() => selected.value?.codes ?? [])
 const playUrl = computed(() => `${window.location.origin}/play`)
 const selectedQuiz = computed(() => quizzes.value.find((quiz) => quiz.id === importForm.quizId) ?? null)
 const selectedQuestionCount = computed(() => selectedQuiz.value?.questions?.filter((question) => importForm.onlyIncludedQuestions ? question.is_included !== false : true).length ?? 0)
+const pendingAttemptCount = computed(() => selected.value?.attempts.filter((attempt) => !attempt.is_submitted).length ?? 0)
 
 function initializeAnswerDrafts(questions: ActivityQuestion[] = []) {
   for (const key of Object.keys(answerDrafts)) delete answerDrafts[Number(key)]
@@ -391,6 +395,50 @@ async function refreshScoring() {
   }
 }
 
+async function submitPendingAttempt(attemptId: number) {
+  if (!selected.value) return
+  submittingAttemptId.value = attemptId
+  error.value = null
+  pendingSubmitSuccess.value = null
+  try {
+    const updated = await api<ActivityDetail & { submitted_pending_count?: number }>(
+      `math/activities/${selected.value.id}/attempts/${attemptId}/submit-pending`,
+      "POST",
+      { auth: true },
+    )
+    selected.value = updated
+    initializeAnswerDrafts(selected.value.questions)
+    pendingSubmitSuccess.value = "Pending attempt submitted and scored."
+    await loadActivities()
+  } catch (err: any) {
+    error.value = err?.message || "Failed to submit pending attempt"
+  } finally {
+    submittingAttemptId.value = null
+  }
+}
+
+async function submitAllPendingAttempts() {
+  if (!selected.value) return
+  pendingSubmitting.value = true
+  error.value = null
+  pendingSubmitSuccess.value = null
+  try {
+    const updated = await api<ActivityDetail & { submitted_pending_count?: number }>(
+      `math/activities/${selected.value.id}/attempts/submit-pending`,
+      "POST",
+      { auth: true },
+    )
+    selected.value = updated
+    initializeAnswerDrafts(selected.value.questions)
+    pendingSubmitSuccess.value = `Submitted ${updated.submitted_pending_count ?? 0} pending attempt${(updated.submitted_pending_count ?? 0) === 1 ? "" : "s"}.`
+    await loadActivities()
+  } catch (err: any) {
+    error.value = err?.message || "Failed to submit pending attempts"
+  } finally {
+    pendingSubmitting.value = false
+  }
+}
+
 async function downloadCodesPdf() {
   if (!selected.value) return
   const blob = await api<Blob>(`math/activities/${selected.value.id}/codes/pdf`, "GET", {
@@ -628,6 +676,9 @@ onMounted(async () => {
               <button class="ghost" type="button" :disabled="scoringRefreshing || !selected.submitted_count" @click="refreshScoring">
                 {{ scoringRefreshing ? "Refreshing..." : "Refresh scoring" }}
               </button>
+              <button class="ghost" type="button" :disabled="pendingSubmitting || !pendingAttemptCount" @click="submitAllPendingAttempts">
+                {{ pendingSubmitting ? "Submitting..." : "Submit all pending" }}
+              </button>
               <button class="primary" type="button" @click="downloadCodesPdf">Print codes PDF</button>
               <button class="secondary" type="button" :disabled="outcomesLoading || !selected.attempt_count" @click="downloadOutcomesPdf">
                 {{ outcomesLoading ? "Preparing..." : "Print outcomes PDF" }}
@@ -650,6 +701,7 @@ onMounted(async () => {
             </div>
           </div>
           <p v-if="scoringSuccess" class="success">{{ scoringSuccess }}</p>
+          <p v-if="pendingSubmitSuccess" class="success">{{ pendingSubmitSuccess }}</p>
 
           <div class="answer-key-panel">
             <div class="panel-title">
@@ -712,12 +764,25 @@ onMounted(async () => {
               <span>Score</span>
               <span>Action</span>
             </div>
-            <button v-for="attempt in selected.attempts" :key="attempt.id" class="attempt-row attempt-button" type="button" @click="loadAttempt(attempt.id)">
+            <div v-for="attempt in selected.attempts" :key="attempt.id" class="attempt-row">
               <span>{{ attempt.learner_name || "Unnamed" }}</span>
               <span>{{ attempt.code }}</span>
               <span>{{ attempt.is_submitted ? `${attempt.score}/${attempt.total} (${attempt.percentage_score}%)` : "In progress" }}</span>
-              <span class="view-answers">{{ loadingAttemptId === attempt.id ? "Loading..." : "View answers" }}</span>
-            </button>
+              <span class="attempt-actions">
+                <button class="text-action" type="button" @click="loadAttempt(attempt.id)">
+                  {{ loadingAttemptId === attempt.id ? "Loading..." : "View answers" }}
+                </button>
+                <button
+                  v-if="!attempt.is_submitted"
+                  class="text-action warn"
+                  type="button"
+                  :disabled="submittingAttemptId === attempt.id"
+                  @click="submitPendingAttempt(attempt.id)"
+                >
+                  {{ submittingAttemptId === attempt.id ? "Submitting..." : "Submit pending" }}
+                </button>
+              </span>
+            </div>
             <p v-if="!selected.attempts.length" class="subtle">No attempts yet.</p>
           </div>
         </div>
@@ -1037,27 +1102,33 @@ textarea {
   padding: 0.45rem 0;
 }
 
-.attempt-button {
-  width: 100%;
-  border-top: 0;
-  border-right: 0;
-  border-left: 0;
+.attempt-row:not(.heading):hover {
+  background: #f5f8f3;
+}
+
+.attempt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
+}
+
+.text-action {
+  border: 0;
   background: transparent;
-  color: inherit;
-  text-align: left;
+  color: var(--accent);
   cursor: pointer;
   font: inherit;
-}
-
-.attempt-button:hover,
-.attempt-button:focus-visible {
-  background: #f5f8f3;
-  outline: none;
-}
-
-.view-answers {
-  color: var(--accent);
   font-weight: 700;
+  padding: 0;
+}
+
+.text-action.warn {
+  color: var(--accent-2);
+}
+
+.text-action:disabled {
+  cursor: progress;
+  opacity: 0.65;
 }
 
 .attempt-row.heading {
