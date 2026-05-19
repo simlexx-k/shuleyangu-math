@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue"
+import { useRoute } from "vue-router"
 import { api } from "@/lib/api"
 
 type GradeKey =
@@ -221,6 +222,8 @@ const settings = reactive({
 
 const pdfLoading = ref(false)
 const pdfError = ref<string | null>(null)
+const route = useRoute()
+const gridMode = computed(() => route.name === "multiplication-grids")
 
 const selectedProfile = computed<GradeProfile>(() => {
   return gradeProfiles.find((profile) => profile.key === settings.grade) ?? defaultProfile
@@ -528,9 +531,35 @@ function resetDefaults() {
   settings.customBaseEnd = 12
 }
 
+function useTablesAndGridsMode() {
+  settings.lessonTitle = `${selectedProfile.value.label} Multiplication Tables and Grids`
+  settings.includeGuidance = false
+  settings.includeGrid = true
+  settings.includeFacts = true
+  settings.includePractice = false
+  settings.includeWordProblems = false
+  settings.includeExitTicket = false
+  settings.includeAnswerKey = true
+  settings.includeWorkedExample = false
+  settings.includeStrategyHints = false
+  settings.includeRubric = false
+  settings.showWorking = false
+  settings.showAnswersInline = false
+}
+
 function newVersion() {
   settings.seed = Math.floor(Math.random() * 900000) + 100000
 }
+
+watch(
+  () => route.name,
+  (name) => {
+    if (name === "multiplication-grids") {
+      useTablesAndGridsMode()
+    }
+  },
+  { immediate: true },
+)
 
 function printNow() {
   window.print()
@@ -604,13 +633,18 @@ async function downloadPdf() {
     <div class="tool-header">
       <div>
         <p class="eyebrow">Math Tool</p>
-        <h1>Multiplication Practice Builder</h1>
+        <h1>{{ gridMode ? "Multiplication Tables & Grids" : "Multiplication Practice Builder" }}</h1>
         <p class="subtle">
-          Create grade-aware learner sheets, teacher guides, exit tickets, grids, and answer keys.
+          {{
+            gridMode
+              ? "Print class-level multiplication tables, grids, fact cards, and answer keys."
+              : "Create grade-aware learner sheets, teacher guides, exit tickets, grids, and answer keys."
+          }}
         </p>
       </div>
       <div class="header-actions no-print">
         <button class="ghost" type="button" @click="resetDefaults">Reset</button>
+        <button class="ghost" type="button" @click="useTablesAndGridsMode">Tables & grids</button>
         <button class="ghost" type="button" @click="newVersion">New version</button>
         <button class="primary" type="button" :disabled="pdfLoading" @click="downloadPdf">
           {{ pdfLoading ? "Preparing PDF..." : "Export Designed PDF" }}

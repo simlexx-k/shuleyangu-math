@@ -12,6 +12,7 @@ const navItems = computed(() => [
   { name: "Student Activities", to: "/tools/student-activities" },
   { name: "Student Play", to: "/play" },
   { name: "Science Labs", to: "/science" },
+  { name: "Tables & Grids", to: "/tools/multiplication-grids" },
   { name: "Multiplication Printouts", to: "/tools/multiplication-printouts" },
   { name: "GCD / HCF Explorer", to: "/tools/gcd-hcf" },
   { name: "LCM Explorer", to: "/tools/lcm" },

@@ -37,6 +37,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/tools/multiplication-grids',
+      name: 'multiplication-grids',
+      component: () => import('../views/MultiplicationPrintoutsView.vue'),
+      meta: {
+        requiresAuth: true,
+        title: 'Multiplication Tables & Grids',
+        description: 'Print multiplication tables, fact cards, and grid practice sheets by class level.',
+      },
+    },
+    {
       path: '/tools/student-activities',
       name: 'student-activities',
       component: () => import('../views/StudentActivitiesView.vue'),

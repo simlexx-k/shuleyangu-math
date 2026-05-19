@@ -14,6 +14,13 @@ const tools = computed(() => [
     cta: "Open",
   },
   {
+    name: "Multiplication Tables & Grids",
+    description: "Print focused multiplication tables, blank grids, fact cards, and table practice pages.",
+    status: "Ready",
+    route: "/tools/multiplication-grids",
+    cta: "Open",
+  },
+  {
     name: "Student Activities",
     description: "Create interactive code-based math games and print code slips for learners.",
     status: "Ready",
@@ -93,8 +100,8 @@ function statusClass(status: string) {
     <div class="stat-grid fade-in">
       <div class="stat-card">
         <span class="stat-label">Active tools</span>
-        <span class="stat-value">6</span>
-        <span class="subtle">Multiplication, HCF, LCM, Science, Number Sense, Fractions</span>
+        <span class="stat-value">7</span>
+        <span class="subtle">Multiplication, tables, HCF, LCM, Science, Number Sense, Fractions</span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Upcoming</span>

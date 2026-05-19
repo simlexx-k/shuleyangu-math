@@ -105,9 +105,12 @@ const codeLoading = ref(false)
 const importLoading = ref(false)
 const attemptLoading = ref(false)
 const answerSaving = ref(false)
+const scoringRefreshing = ref(false)
+const outcomesLoading = ref(false)
 const loadingAttemptId = ref<number | null>(null)
 const importSuccess = ref<string | null>(null)
 const answerSuccess = ref<string | null>(null)
+const scoringSuccess = ref<string | null>(null)
 const auth = useAuthStore()
 const answerDrafts = reactive<Record<number, { answer: string; acceptedText: string }>>({})
 
@@ -368,6 +371,26 @@ async function saveExpectedAnswers() {
   }
 }
 
+async function refreshScoring() {
+  if (!selected.value) return
+  scoringRefreshing.value = true
+  error.value = null
+  scoringSuccess.value = null
+  try {
+    const updated = await api<ActivityDetail & { regraded_count?: number }>(`math/activities/${selected.value.id}/attempts/regrade`, "POST", {
+      auth: true,
+    })
+    selected.value = updated
+    initializeAnswerDrafts(selected.value.questions)
+    scoringSuccess.value = `Scoring refreshed for ${updated.regraded_count ?? 0} submitted attempt${(updated.regraded_count ?? 0) === 1 ? "" : "s"}.`
+    await loadActivities()
+  } catch (err: any) {
+    error.value = err?.message || "Failed to refresh scoring"
+  } finally {
+    scoringRefreshing.value = false
+  }
+}
+
 async function downloadCodesPdf() {
   if (!selected.value) return
   const blob = await api<Blob>(`math/activities/${selected.value.id}/codes/pdf`, "GET", {
@@ -382,6 +405,30 @@ async function downloadCodesPdf() {
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+async function downloadOutcomesPdf() {
+  if (!selected.value) return
+  outcomesLoading.value = true
+  error.value = null
+  try {
+    const blob = await api<Blob>(`math/activities/${selected.value.id}/outcomes/pdf`, "GET", {
+      auth: true,
+      responseType: "blob",
+    })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `student_activity_outcomes_${selected.value.id}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (err: any) {
+    error.value = err?.message || "Failed to generate outcomes PDF"
+  } finally {
+    outcomesLoading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -578,7 +625,13 @@ onMounted(async () => {
             </div>
             <div class="detail-actions">
               <button class="ghost" type="button" :disabled="codeLoading" @click="addCodes">Fill missing roster codes</button>
+              <button class="ghost" type="button" :disabled="scoringRefreshing || !selected.submitted_count" @click="refreshScoring">
+                {{ scoringRefreshing ? "Refreshing..." : "Refresh scoring" }}
+              </button>
               <button class="primary" type="button" @click="downloadCodesPdf">Print codes PDF</button>
+              <button class="secondary" type="button" :disabled="outcomesLoading || !selected.attempt_count" @click="downloadOutcomesPdf">
+                {{ outcomesLoading ? "Preparing..." : "Print outcomes PDF" }}
+              </button>
             </div>
           </div>
 
@@ -596,6 +649,7 @@ onMounted(async () => {
               <span class="stat-value">{{ selected.submitted_count }}</span>
             </div>
           </div>
+          <p v-if="scoringSuccess" class="success">{{ scoringSuccess }}</p>
 
           <div class="answer-key-panel">
             <div class="panel-title">
